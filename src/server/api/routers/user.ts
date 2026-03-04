@@ -188,6 +188,7 @@ export const userRouter = createTRPCRouter({
         message: "An unexpected error occurred during logout.",
       });
     }
+  }),
 });
 
 async function authenticateUser(email: string, password: string) {
