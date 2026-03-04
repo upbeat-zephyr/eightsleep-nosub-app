@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { apiR } from "~/trpc/react";
 import { Button } from "~/components/ui/button";
+import TimezoneSelect, {
+  allTimezones,
+  type ITimezoneOption,
+} from "react-timezone-select";
 
 type AutomationSettings = {
   offTime: string;
@@ -90,13 +94,15 @@ export function AutomationSettingsForm() {
 
         <label className="flex flex-col gap-1 text-sm">
           Timezone
-          <input
-            type="text"
+          <TimezoneSelect
             value={settings.timezone}
-            onChange={(event) => updateField("timezone", event.target.value)}
-            placeholder="America/New_York"
-            className="rounded border px-3 py-2"
-            required
+            onChange={(tz: ITimezoneOption) => updateField("timezone", tz.value)}
+            timezones={{
+              ...allTimezones,
+              "America/New_York": "America/New York",
+              "America/Los_Angeles": "America/Los Angeles",
+            }}
+            className="text-sm"
           />
         </label>
 
