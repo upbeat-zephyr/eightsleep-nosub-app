@@ -21,54 +21,31 @@ function loadConfig() {
   return JSON.parse(raw);
 }
 
-function formatTime(date) {
-  return date.toISOString().slice(11, 16);
-}
-
-function localNow(config) {
-  return new Date(
-    new Date().toLocaleString("en-US", { timeZone: config.timezone ?? "UTC" }),
-  );
-}
-
-function shouldRun(config, now) {
-  const hhmm = formatTime(now);
-  if (hhmm === config.off_time) return "off";
-  if (hhmm === config.on_time) return "on";
-  return null;
-}
-
-let lastAction = null;
-
 async function tick() {
-  const config = loadConfig();
-  const now = localNow(config);
-  const action = shouldRun(config, now);
-  if (!action || lastAction === `${action}-${formatTime(now)}`) {
-    return;
-  }
+  // Keep config validation behavior for local setups that still use this file.
+  loadConfig();
 
   try {
     const res = await fetch(
-      `${SERVICE_URL}?action=${action}&testTime=${Math.floor(Date.now() / 1000)}`,
+      `${SERVICE_URL}?testTime=${Math.floor(Date.now() / 1000)}`,
       {
         headers: { authorization: `Bearer ${CRON_SECRET}` },
       },
     );
     if (!res.ok) {
       const body = await res.text();
-      console.error(`Failed to run ${action}:`, res.status, body);
+      console.error("Failed to run scheduler ping:", res.status, body);
     } else {
-      console.log(`[${new Date().toISOString()}] ran ${action}`);
-      lastAction = `${action}-${formatTime(now)}`;
+      const body = await res.text();
+      console.log(`[${new Date().toISOString()}] scheduler ping ok: ${body}`);
     }
   } catch (error) {
-    console.error(`Error calling ${action}:`, error);
+    console.error("Error calling scheduler endpoint:", error);
   }
 }
 
 console.log(
-  `Starting on/off service; using config at ${CONFIG_PATH} and endpoint ${SERVICE_URL}`,
+  `Starting on/off service; using config at ${CONFIG_PATH} and scheduler endpoint ${SERVICE_URL}`,
 );
 tick();
 setInterval(tick, 60 * 1000);

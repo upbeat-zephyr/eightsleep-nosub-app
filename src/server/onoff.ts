@@ -20,6 +20,8 @@ const DEFAULT_CONFIG: OnOffConfig = {
   timezone: "UTC",
   initial_level: 0,
 };
+const DEFAULT_TOLERANCE_MINUTES = 15;
+const API_RETRY_ATTEMPTS = 3;
 
 function configPath(): string {
   return (
@@ -92,6 +94,25 @@ async function withFreshToken(userEmail: string, token: Token): Promise<Token> {
   return refreshed;
 }
 
+async function retryApiCall<T>(
+  apiCall: () => Promise<T>,
+  retries = API_RETRY_ATTEMPTS,
+): Promise<T> {
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      return await apiCall();
+    } catch (error) {
+      if (attempt === retries - 1) {
+        throw error;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, 500 * Math.pow(2, attempt)),
+      );
+    }
+  }
+  throw new Error("retryApiCall reached an impossible state");
+}
+
 export async function runOnOffJob(options?: {
   action?: "on" | "off";
   now?: Date;
@@ -103,7 +124,8 @@ export async function runOnOffJob(options?: {
   skippedCount: number;
 }> {
   const fallbackConfig = loadOnOffConfig();
-  const toleranceMs = (options?.toleranceMinutes ?? 1) * 60 * 1000;
+  const toleranceMs =
+    (options?.toleranceMinutes ?? DEFAULT_TOLERANCE_MINUTES) * 60 * 1000;
   const allUsers = await db
     .select({
       user: users,
@@ -152,11 +174,13 @@ export async function runOnOffJob(options?: {
       };
       const fresh = await withFreshToken(user.email, token);
       if (action === "off") {
-        await turnOffSide(fresh, user.eightUserId);
+        await retryApiCall(() => turnOffSide(fresh, user.eightUserId));
         offCount += 1;
       } else {
-        await turnOnSide(fresh, user.eightUserId);
-        await setHeatingLevel(fresh, user.eightUserId, userConfig.initial_level);
+        await retryApiCall(() => turnOnSide(fresh, user.eightUserId));
+        await retryApiCall(() =>
+          setHeatingLevel(fresh, user.eightUserId, userConfig.initial_level),
+        );
         onCount += 1;
       }
       ranFor += 1;
