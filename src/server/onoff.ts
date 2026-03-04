@@ -2,21 +2,23 @@ import fs from "fs";
 import path from "path";
 import { eq } from "drizzle-orm";
 import { db } from "~/server/db";
-import { users } from "~/server/db/schema";
+import { userTemperatureProfile, users } from "~/server/db/schema";
 import { obtainFreshAccessToken } from "./eight/auth";
-import { turnOffSide, turnOnSide } from "./eight/eight";
+import { setHeatingLevel, turnOffSide, turnOnSide } from "./eight/eight";
 import { type Token } from "./eight/types";
 
 export type OnOffConfig = {
   off_time: string;
   on_time: string;
   timezone?: string;
+  initial_level?: number;
 };
 
 const DEFAULT_CONFIG: OnOffConfig = {
   off_time: "07:00",
   on_time: "21:00",
   timezone: "UTC",
+  initial_level: 0,
 };
 
 function configPath(): string {
@@ -49,12 +51,16 @@ function validateTime(time: string) {
   }
 }
 
-function formatTime(date: Date): string {
-  return date.toISOString().slice(11, 16);
-}
-
 function timeToDate(now: Date, time: string): Date {
   const [hours, minutes] = time.split(":").map(Number);
+  if (
+    hours === undefined ||
+    minutes === undefined ||
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes)
+  ) {
+    throw new Error(`Invalid time: ${time}`);
+  }
   const copy = new Date(now);
   copy.setHours(hours, minutes, 0, 0);
   return copy;
@@ -90,31 +96,54 @@ export async function runOnOffJob(options?: {
   action?: "on" | "off";
   now?: Date;
   toleranceMinutes?: number;
-}): Promise<{ action: "on" | "off" | null; ranFor: number; localTime: string }> {
-  const config = loadOnOffConfig();
-  const current = localNow(config, options?.now ?? new Date());
+}): Promise<{
+  ranFor: number;
+  onCount: number;
+  offCount: number;
+  skippedCount: number;
+}> {
+  const fallbackConfig = loadOnOffConfig();
   const toleranceMs = (options?.toleranceMinutes ?? 1) * 60 * 1000;
+  const allUsers = await db
+    .select({
+      user: users,
+      profile: userTemperatureProfile,
+    })
+    .from(users)
+    .leftJoin(userTemperatureProfile, eq(users.email, userTemperatureProfile.email));
 
-  const targetOff = timeToDate(current, config.off_time);
-  const targetOn = timeToDate(current, config.on_time);
+  let ranFor = 0;
+  let onCount = 0;
+  let offCount = 0;
+  let skippedCount = 0;
 
-  let action = options?.action ?? null;
-  if (!action) {
-    if (Math.abs(current.getTime() - targetOff.getTime()) <= toleranceMs) {
-      action = "off";
-    } else if (Math.abs(current.getTime() - targetOn.getTime()) <= toleranceMs) {
-      action = "on";
-    }
-  }
-
-  if (!action) {
-    return { action: null, ranFor: 0, localTime: formatTime(current) };
-  }
-
-  const allUsers = await db.select().from(users);
-  let processed = 0;
-  for (const user of allUsers) {
+  for (const entry of allUsers) {
     try {
+      const { user, profile } = entry;
+      const userConfig = {
+        off_time: profile?.wakeupTime.slice(0, 5) ?? fallbackConfig.off_time,
+        on_time: profile?.bedTime.slice(0, 5) ?? fallbackConfig.on_time,
+        timezone: profile?.timezoneTZ ?? fallbackConfig.timezone ?? "UTC",
+        initial_level: profile?.initialSleepLevel ?? fallbackConfig.initial_level ?? 0,
+      };
+      const current = localNow(userConfig, options?.now ?? new Date());
+      const targetOff = timeToDate(current, userConfig.off_time);
+      const targetOn = timeToDate(current, userConfig.on_time);
+
+      let action = options?.action ?? null;
+      if (!action) {
+        if (Math.abs(current.getTime() - targetOff.getTime()) <= toleranceMs) {
+          action = "off";
+        } else if (Math.abs(current.getTime() - targetOn.getTime()) <= toleranceMs) {
+          action = "on";
+        }
+      }
+
+      if (!action) {
+        skippedCount += 1;
+        continue;
+      }
+
       const token: Token = {
         eightAccessToken: user.eightAccessToken,
         eightRefreshToken: user.eightRefreshToken,
@@ -124,14 +153,17 @@ export async function runOnOffJob(options?: {
       const fresh = await withFreshToken(user.email, token);
       if (action === "off") {
         await turnOffSide(fresh, user.eightUserId);
+        offCount += 1;
       } else {
         await turnOnSide(fresh, user.eightUserId);
+        await setHeatingLevel(fresh, user.eightUserId, userConfig.initial_level);
+        onCount += 1;
       }
-      processed += 1;
+      ranFor += 1;
     } catch (error) {
-      console.error(`Failed to run ${action} for ${user.email}:`, error);
+      console.error("Failed to run on/off for user:", error);
     }
   }
 
-  return { action, ranFor: processed, localTime: formatTime(current) };
+  return { ranFor, onCount, offCount, skippedCount };
 }

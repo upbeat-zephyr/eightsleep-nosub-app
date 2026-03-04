@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { loadOnOffConfig, runOnOffJob } from "~/server/onoff";
+import { runOnOffJob } from "~/server/onoff";
 
 export const runtime = "nodejs";
 
@@ -26,10 +26,11 @@ export async function GET(request: NextRequest): Promise<Response> {
 
     return Response.json({
       success: true,
-      action: result.action,
       ranFor: result.ranFor,
-      localTime: result.localTime,
-      timezone: loadOnOffConfig().timezone ?? "UTC",
+      onCount: result.onCount,
+      offCount: result.offCount,
+      skippedCount: result.skippedCount,
+      forcedAction: forcedAction ?? null,
     });
   } catch (error) {
     console.error("Error running on/off cron job:", error);

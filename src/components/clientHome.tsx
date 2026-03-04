@@ -3,14 +3,12 @@
 import { useState } from "react";
 import { EightLoginDialog } from "~/components/eightLogin";
 import { LogoutButton } from "~/components/logout";
-import type { OnOffConfig } from "~/server/onoff";
+import { AutomationSettingsForm } from "~/components/automationSettingsForm";
 
 export default function ClientHome({
   initialLoginState,
-  schedule,
 }: {
   initialLoginState: boolean;
-  schedule: OnOffConfig;
 }) {
   const [isLoggedIn, setIsLoggedIn] = useState(initialLoginState);
 
@@ -21,20 +19,20 @@ export default function ClientHome({
           Eightsleep <span className="text-[hsl(280,100%,70%)]">Nosub</span> App
         </h1>
         <p className="text-center text-base text-white/80">
-          Lightweight automation: bed turns off daily at{" "}
-          <strong>{schedule.off_time}</strong> and back on at{" "}
-          <strong>{schedule.on_time}</strong> (
-          {schedule.timezone ?? "UTC"}). Edit{" "}
-          <code>config/onoff-config.json</code> to change times.
+          Configure on/off times, timezone, and your initial temperature inside
+          the app.
         </p>
         <div className="flex flex-col items-center gap-2">
           {!isLoggedIn && (
             <EightLoginDialog onLoginSuccess={() => setIsLoggedIn(true)} />
           )}
           {isLoggedIn && (
-            <div className="mx-auto flex w-full flex-row items-center justify-center rounded-lg bg-white p-6 shadow-xl">
-              <LogoutButton onLogoutSuccess={() => setIsLoggedIn(false)} />
-            </div>
+            <>
+              <div className="mx-auto flex w-full flex-row items-center justify-center rounded-lg bg-white p-6 shadow-xl">
+                <LogoutButton onLogoutSuccess={() => setIsLoggedIn(false)} />
+              </div>
+              <AutomationSettingsForm />
+            </>
           )}
         </div>
       </div>

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 import { db } from "~/server/db";
-import { users } from "~/server/db/schema";
+import { userTemperatureProfile, users } from "~/server/db/schema";
 import { cookies } from "next/headers";
 import {
   authenticate,
@@ -189,6 +189,69 @@ export const userRouter = createTRPCRouter({
       });
     }
   }),
+  getAutomationSettings: publicProcedure.query(async ({ ctx }) => {
+    const decoded = await checkAuthCookie(ctx.headers);
+    const profile = await db.query.userTemperatureProfile.findFirst({
+      where: eq(userTemperatureProfile.email, decoded.email),
+    });
+
+    if (!profile) {
+      return {
+        offTime: "07:00",
+        onTime: "21:00",
+        timezone: "UTC",
+        initialTemperature: 0,
+      };
+    }
+
+    return {
+      offTime: profile.wakeupTime.slice(0, 5),
+      onTime: profile.bedTime.slice(0, 5),
+      timezone: profile.timezoneTZ,
+      initialTemperature: Math.round(profile.initialSleepLevel / 10),
+    };
+  }),
+  updateAutomationSettings: publicProcedure
+    .input(
+      z.object({
+        offTime: z.string().regex(/^\d{2}:\d{2}$/),
+        onTime: z.string().regex(/^\d{2}:\d{2}$/),
+        timezone: z.string().min(1).max(50),
+        initialTemperature: z.number().int().min(-10).max(10),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const decoded = await checkAuthCookie(ctx.headers);
+      const dbLevel = input.initialTemperature * 10;
+
+      await db
+        .insert(userTemperatureProfile)
+        .values({
+          email: decoded.email,
+          bedTime: `${input.onTime}:00`,
+          wakeupTime: `${input.offTime}:00`,
+          timezoneTZ: input.timezone,
+          initialSleepLevel: dbLevel,
+          midStageSleepLevel: dbLevel,
+          finalSleepLevel: dbLevel,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: userTemperatureProfile.email,
+          set: {
+            bedTime: `${input.onTime}:00`,
+            wakeupTime: `${input.offTime}:00`,
+            timezoneTZ: input.timezone,
+            initialSleepLevel: dbLevel,
+            midStageSleepLevel: dbLevel,
+            finalSleepLevel: dbLevel,
+            updatedAt: new Date(),
+          },
+        })
+        .execute();
+
+      return { success: true };
+    }),
 });
 
 async function authenticateUser(email: string, password: string) {
