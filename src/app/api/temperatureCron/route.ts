@@ -29,6 +29,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       ranFor: result.ranFor,
       onCount: result.onCount,
       offCount: result.offCount,
+      temperatureStepCount: result.temperatureStepCount,
       skippedCount: result.skippedCount,
       forcedAction: forcedAction ?? null,
     });

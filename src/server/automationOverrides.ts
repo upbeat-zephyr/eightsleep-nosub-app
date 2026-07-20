@@ -1,4 +1,4 @@
-import { sql } from "@vercel/postgres";
+import { queryClient } from "~/server/db";
 
 export type OneTimeAutomationOverride = {
   onTime: string | null;
@@ -28,34 +28,36 @@ async function retryDb<T>(operation: () => Promise<T>): Promise<T> {
 
 async function ensureAutomationOverrideTable(): Promise<void> {
   ensureTablePromise ??= retryDb(async () => {
-    await sql`
+    await queryClient`
       CREATE TABLE IF NOT EXISTS "8slp_automation_overrides" (
         email varchar(255) PRIMARY KEY REFERENCES "8slp_users"(email) ON DELETE CASCADE,
         off_time varchar(5),
         local_date varchar(10),
         delay_minutes integer,
+        on_time varchar(5),
+        on_local_date varchar(10),
         timezone varchar(50) NOT NULL,
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )
     `;
-    await sql`
+    await queryClient`
       ALTER TABLE "8slp_automation_overrides"
       ADD COLUMN IF NOT EXISTS on_time varchar(5)
     `;
-    await sql`
+    await queryClient`
       ALTER TABLE "8slp_automation_overrides"
       ADD COLUMN IF NOT EXISTS on_local_date varchar(10)
     `;
-    await sql`
+    await queryClient`
       ALTER TABLE "8slp_automation_overrides"
       ALTER COLUMN off_time DROP NOT NULL
     `;
-    await sql`
+    await queryClient`
       ALTER TABLE "8slp_automation_overrides"
       ALTER COLUMN local_date DROP NOT NULL
     `;
-    await sql`
+    await queryClient`
       ALTER TABLE "8slp_automation_overrides"
       ALTER COLUMN delay_minutes DROP NOT NULL
     `;
@@ -73,7 +75,7 @@ export async function getOneTimeAutomationOverride(
   await ensureAutomationOverrideTable();
 
   const result = await retryDb(
-    () => sql`
+    () => queryClient`
       SELECT
         on_time,
         on_local_date,
@@ -86,7 +88,7 @@ export async function getOneTimeAutomationOverride(
       LIMIT 1
     `,
   );
-  const row = result.rows[0];
+  const row = result[0];
 
   if (!row) {
     return null;
@@ -94,13 +96,11 @@ export async function getOneTimeAutomationOverride(
 
   return {
     onTime: row.on_time === null ? null : String(row.on_time),
-    onLocalDate:
-      row.on_local_date === null ? null : String(row.on_local_date),
+    onLocalDate: row.on_local_date === null ? null : String(row.on_local_date),
     offTime: row.off_time === null ? null : String(row.off_time),
     offLocalDate:
       row.off_local_date === null ? null : String(row.off_local_date),
-    delayMinutes:
-      row.delay_minutes === null ? null : Number(row.delay_minutes),
+    delayMinutes: row.delay_minutes === null ? null : Number(row.delay_minutes),
     timezone: String(row.timezone),
   };
 }
@@ -115,7 +115,7 @@ export async function setOneTimeOffOverride(input: {
   await ensureAutomationOverrideTable();
 
   await retryDb(
-    () => sql`
+    () => queryClient`
       INSERT INTO "8slp_automation_overrides" (
         email,
         off_time,
@@ -151,7 +151,7 @@ export async function setOneTimeOnOverride(input: {
   await ensureAutomationOverrideTable();
 
   await retryDb(
-    () => sql`
+    () => queryClient`
       INSERT INTO "8slp_automation_overrides" (
         email,
         on_time,
@@ -179,7 +179,7 @@ export async function clearOneTimeOffOverride(email: string): Promise<void> {
   await ensureAutomationOverrideTable();
 
   await retryDb(
-    () => sql`
+    () => queryClient`
       UPDATE "8slp_automation_overrides"
       SET off_time = NULL,
           local_date = NULL,
@@ -195,7 +195,7 @@ export async function clearOneTimeOnOverride(email: string): Promise<void> {
   await ensureAutomationOverrideTable();
 
   await retryDb(
-    () => sql`
+    () => queryClient`
       UPDATE "8slp_automation_overrides"
       SET on_time = NULL,
           on_local_date = NULL,
@@ -212,7 +212,7 @@ export async function clearOneTimeAutomationOverride(
   await ensureAutomationOverrideTable();
 
   await retryDb(
-    () => sql`
+    () => queryClient`
       DELETE FROM "8slp_automation_overrides"
       WHERE email = ${email}
     `,
@@ -221,7 +221,7 @@ export async function clearOneTimeAutomationOverride(
 
 async function deleteEmptyOverride(email: string): Promise<void> {
   await retryDb(
-    () => sql`
+    () => queryClient`
       DELETE FROM "8slp_automation_overrides"
       WHERE email = ${email}
         AND on_time IS NULL

@@ -21,6 +21,10 @@ import {
   setOneTimeOnOverride,
   type OneTimeAutomationOverride,
 } from "~/server/automationOverrides";
+import {
+  getTemperatureScheduleSteps,
+  replaceTemperatureScheduleSteps,
+} from "~/server/temperatureSchedule";
 
 class DatabaseError extends Error {
   constructor(message: string) {
@@ -173,7 +177,9 @@ export const userRouter = createTRPCRouter({
       try {
         const authResult = await authenticateUser(input.email, input.password);
 
-        const approvedEmails = process.env.APPROVED_EMAILS!.split(",").map(email => email.toLowerCase());
+        const approvedEmails = process.env
+          .APPROVED_EMAILS!.split(",")
+          .map((email) => email.toLowerCase());
 
         if (!approvedEmails.includes(input.email.toLowerCase())) {
           throw new AuthError("Email not approved");
@@ -245,6 +251,7 @@ export const userRouter = createTRPCRouter({
       where: eq(userTemperatureProfile.email, decoded.email),
     });
     let oneTimeOverride: OneTimeAutomationOverride | null = null;
+    let temperatureSteps: Array<{ time: string; temperature: number }> = [];
 
     try {
       oneTimeOverride = await getOneTimeAutomationOverride(decoded.email);
@@ -280,12 +287,23 @@ export const userRouter = createTRPCRouter({
       console.error("Failed to load one-time override:", error);
     }
 
+    try {
+      const savedSteps = await getTemperatureScheduleSteps(decoded.email);
+      temperatureSteps = savedSteps.map((step) => ({
+        time: step.time,
+        temperature: Math.round(step.level / 10),
+      }));
+    } catch (error) {
+      console.error("Failed to load temperature schedule:", error);
+    }
+
     if (!profile) {
       return {
         offTime: "07:00",
         onTime: "21:00",
         timezone: "UTC",
         initialTemperature: 0,
+        temperatureSteps,
         oneTimeOverride,
       };
     }
@@ -295,6 +313,7 @@ export const userRouter = createTRPCRouter({
       onTime: profile.bedTime.slice(0, 5),
       timezone: profile.timezoneTZ,
       initialTemperature: Math.round(profile.initialSleepLevel / 10),
+      temperatureSteps,
       oneTimeOverride,
     };
   }),
@@ -305,11 +324,25 @@ export const userRouter = createTRPCRouter({
         onTime: z.string().regex(/^\d{2}:\d{2}$/),
         timezone: z.string().min(1).max(50),
         initialTemperature: z.number().int().min(-10).max(10),
+        temperatureSteps: z
+          .array(
+            z.object({
+              time: z.string().regex(/^\d{2}:\d{2}$/),
+              temperature: z.number().int().min(-10).max(10),
+            }),
+          )
+          .default([]),
       }),
     )
     .mutation(async ({ input, ctx }) => {
       const decoded = await checkAuthCookie(ctx.headers);
       const dbLevel = input.initialTemperature * 10;
+      const temperatureSteps = input.temperatureSteps
+        .map((step) => ({
+          time: step.time,
+          level: step.temperature * 10,
+        }))
+        .sort((a, b) => a.time.localeCompare(b.time));
 
       await db
         .insert(userTemperatureProfile)
@@ -337,12 +370,18 @@ export const userRouter = createTRPCRouter({
         })
         .execute();
 
+      await replaceTemperatureScheduleSteps(decoded.email, temperatureSteps);
+
       return { success: true };
     }),
   setOneTimeOffDelay: publicProcedure
     .input(
       z.object({
-        delayMinutes: z.number().int().min(15).max(12 * 60),
+        delayMinutes: z
+          .number()
+          .int()
+          .min(15)
+          .max(12 * 60),
       }),
     )
     .mutation(async ({ input, ctx }) => {

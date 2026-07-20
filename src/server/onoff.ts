@@ -11,6 +11,7 @@ import {
   clearOneTimeOnOverride,
   getOneTimeAutomationOverride,
 } from "./automationOverrides";
+import { getTemperatureScheduleSteps } from "./temperatureSchedule";
 
 export type OnOffConfig = {
   off_time: string;
@@ -73,6 +74,31 @@ function timeToDate(now: Date, time: string): Date {
   return copy;
 }
 
+function minutesFromTime(time: string): number {
+  const [hours, minutes] = time.split(":").map(Number);
+  if (
+    hours === undefined ||
+    minutes === undefined ||
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes)
+  ) {
+    throw new Error(`Invalid time: ${time}`);
+  }
+  return hours * 60 + minutes;
+}
+
+function isInSleepWindow(now: Date, onTime: string, offTime: string): boolean {
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const onMinutes = minutesFromTime(onTime);
+  const offMinutes = minutesFromTime(offTime);
+
+  if (onMinutes <= offMinutes) {
+    return currentMinutes >= onMinutes && currentMinutes < offMinutes;
+  }
+
+  return currentMinutes >= onMinutes || currentMinutes < offMinutes;
+}
+
 function localNow(config: OnOffConfig, base: Date): Date {
   return new Date(
     base.toLocaleString("en-US", { timeZone: config.timezone ?? "UTC" }),
@@ -133,6 +159,7 @@ export async function runOnOffJob(options?: {
   ranFor: number;
   onCount: number;
   offCount: number;
+  temperatureStepCount: number;
   skippedCount: number;
 }> {
   const fallbackConfig = loadOnOffConfig();
@@ -144,11 +171,15 @@ export async function runOnOffJob(options?: {
       profile: userTemperatureProfile,
     })
     .from(users)
-    .leftJoin(userTemperatureProfile, eq(users.email, userTemperatureProfile.email));
+    .leftJoin(
+      userTemperatureProfile,
+      eq(users.email, userTemperatureProfile.email),
+    );
 
   let ranFor = 0;
   let onCount = 0;
   let offCount = 0;
+  let temperatureStepCount = 0;
   let skippedCount = 0;
 
   for (const entry of allUsers) {
@@ -158,7 +189,8 @@ export async function runOnOffJob(options?: {
         off_time: profile?.wakeupTime.slice(0, 5) ?? fallbackConfig.off_time,
         on_time: profile?.bedTime.slice(0, 5) ?? fallbackConfig.on_time,
         timezone: profile?.timezoneTZ ?? fallbackConfig.timezone ?? "UTC",
-        initial_level: profile?.initialSleepLevel ?? fallbackConfig.initial_level ?? 0,
+        initial_level:
+          profile?.initialSleepLevel ?? fallbackConfig.initial_level ?? 0,
       };
       const current = localNow(userConfig, options?.now ?? new Date());
       const currentLocalDate = formatLocalDate(current);
@@ -168,7 +200,10 @@ export async function runOnOffJob(options?: {
       try {
         const override = await getOneTimeAutomationOverride(user.email);
 
-        if (override?.offLocalDate && override.offLocalDate < currentLocalDate) {
+        if (
+          override?.offLocalDate &&
+          override.offLocalDate < currentLocalDate
+        ) {
           await clearOneTimeOffOverride(user.email);
         } else if (
           override?.offTime &&
@@ -188,22 +223,49 @@ export async function runOnOffJob(options?: {
           usingOneTimeOnOverride = true;
         }
       } catch (error) {
-        console.error(`Failed to load one-time override for ${user.email}:`, error);
+        console.error(
+          `Failed to load one-time override for ${user.email}:`,
+          error,
+        );
       }
 
       const targetOff = timeToDate(current, userConfig.off_time);
       const targetOn = timeToDate(current, userConfig.on_time);
 
       let action = options?.action ?? null;
+      let scheduledTemperatureLevel: number | null = null;
       if (!action) {
         if (Math.abs(current.getTime() - targetOff.getTime()) <= toleranceMs) {
           action = "off";
-        } else if (Math.abs(current.getTime() - targetOn.getTime()) <= toleranceMs) {
+        } else if (
+          Math.abs(current.getTime() - targetOn.getTime()) <= toleranceMs
+        ) {
           action = "on";
+        } else if (
+          isInSleepWindow(current, userConfig.on_time, userConfig.off_time)
+        ) {
+          try {
+            const temperatureSteps = await getTemperatureScheduleSteps(
+              user.email,
+            );
+            const matchingStep = temperatureSteps.find((step) => {
+              const targetStep = timeToDate(current, step.time);
+              return (
+                Math.abs(current.getTime() - targetStep.getTime()) <=
+                toleranceMs
+              );
+            });
+            scheduledTemperatureLevel = matchingStep?.level ?? null;
+          } catch (error) {
+            console.error(
+              `Failed to load temperature schedule for ${user.email}:`,
+              error,
+            );
+          }
         }
       }
 
-      if (!action) {
+      if (!action && scheduledTemperatureLevel === null) {
         skippedCount += 1;
         continue;
       }
@@ -221,7 +283,7 @@ export async function runOnOffJob(options?: {
           await clearOneTimeOffOverride(user.email);
         }
         offCount += 1;
-      } else {
+      } else if (action === "on") {
         await retryApiCall(() => turnOnSide(fresh, user.eightUserId));
         await retryApiCall(() =>
           setHeatingLevel(fresh, user.eightUserId, userConfig.initial_level),
@@ -230,6 +292,12 @@ export async function runOnOffJob(options?: {
           await clearOneTimeOnOverride(user.email);
         }
         onCount += 1;
+      } else if (scheduledTemperatureLevel !== null) {
+        await retryApiCall(() => turnOnSide(fresh, user.eightUserId));
+        await retryApiCall(() =>
+          setHeatingLevel(fresh, user.eightUserId, scheduledTemperatureLevel),
+        );
+        temperatureStepCount += 1;
       }
       ranFor += 1;
     } catch (error) {
@@ -237,5 +305,5 @@ export async function runOnOffJob(options?: {
     }
   }
 
-  return { ranFor, onCount, offCount, skippedCount };
+  return { ranFor, onCount, offCount, temperatureStepCount, skippedCount };
 }

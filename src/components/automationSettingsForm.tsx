@@ -9,11 +9,23 @@ import TimezoneSelect, {
   type ITimezoneOption,
 } from "react-timezone-select";
 
+type TemperatureStep = {
+  time: string;
+  temperature: number;
+};
+
+type TemperatureStepInput = {
+  id: string;
+  time: string;
+  temperatureInput: string;
+};
+
 type AutomationSettings = {
   offTime: string;
   onTime: string;
   timezone: string;
   initialTemperature: number;
+  temperatureSteps: TemperatureStep[];
   oneTimeOverride: {
     onTime: string | null;
     onLocalDate: string | null;
@@ -29,12 +41,14 @@ const DEFAULT_SETTINGS: AutomationSettings = {
   onTime: "21:00",
   timezone: "UTC",
   initialTemperature: 0,
+  temperatureSteps: [],
   oneTimeOverride: null,
 };
 
 const lightButtonClass =
   "border-gray-300 bg-white text-gray-950 shadow-sm hover:bg-gray-100 disabled:bg-gray-100 disabled:text-gray-500";
 const iconButtonClass = `${lightButtonClass} h-11 w-11 shrink-0`;
+const compactIconButtonClass = `${lightButtonClass} h-9 w-9 shrink-0`;
 
 function clampTemperature(value: number): number {
   return Math.min(10, Math.max(-10, value));
@@ -47,8 +61,20 @@ function formatDelay(minutes: number): string {
   return `+${minutes}m`;
 }
 
+function createTemperatureStepInput(
+  step: TemperatureStep,
+  index: number,
+): TemperatureStepInput {
+  return {
+    id: `temperature-step-${index}-${step.time}-${step.temperature}`,
+    time: step.time,
+    temperatureInput: String(step.temperature),
+  };
+}
+
 export function AutomationSettingsForm() {
-  const [settings, setSettings] = useState<AutomationSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] =
+    useState<AutomationSettings>(DEFAULT_SETTINGS);
   const [temperatureInput, setTemperatureInput] = useState(
     String(DEFAULT_SETTINGS.initialTemperature),
   );
@@ -56,16 +82,24 @@ export function AutomationSettingsForm() {
   const [oneTimeOffInput, setOneTimeOffInput] = useState(
     DEFAULT_SETTINGS.offTime,
   );
+  const [temperatureStepInputs, setTemperatureStepInputs] = useState<
+    TemperatureStepInput[]
+  >([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const settingsQuery = apiR.user.getAutomationSettings.useQuery();
   const updateSettings = apiR.user.updateAutomationSettings.useMutation({
     onSuccess: (_result, savedSettings) => {
+      const savedTemperatureSteps = savedSettings.temperatureSteps ?? [];
       setSettings((prev) => ({
         ...savedSettings,
+        temperatureSteps: savedTemperatureSteps,
         oneTimeOverride: prev.oneTimeOverride,
       }));
       setTemperatureInput(String(savedSettings.initialTemperature));
+      setTemperatureStepInputs(
+        savedTemperatureSteps.map(createTemperatureStepInput),
+      );
       setSaveMessage("Settings saved.");
       void settingsQuery.refetch();
     },
@@ -123,6 +157,9 @@ export function AutomationSettingsForm() {
     if (settingsQuery.data) {
       setSettings(settingsQuery.data);
       setTemperatureInput(String(settingsQuery.data.initialTemperature));
+      setTemperatureStepInputs(
+        settingsQuery.data.temperatureSteps.map(createTemperatureStepInput),
+      );
       setOneTimeOnInput(
         settingsQuery.data.oneTimeOverride?.onTime ?? settingsQuery.data.onTime,
       );
@@ -172,6 +209,63 @@ export function AutomationSettingsForm() {
     updateField("initialTemperature", next);
   }
 
+  function addTemperatureStep() {
+    setTemperatureStepInputs((prev) => [
+      ...prev,
+      {
+        id: `temperature-step-new-${Date.now()}-${prev.length}`,
+        time: prev.at(-1)?.time ?? "02:00",
+        temperatureInput: String(settings.initialTemperature),
+      },
+    ]);
+    setSaveMessage(null);
+  }
+
+  function updateTemperatureStepTime(id: string, time: string) {
+    setTemperatureStepInputs((prev) =>
+      prev.map((step) => (step.id === id ? { ...step, time } : step)),
+    );
+    setSaveMessage(null);
+  }
+
+  function updateTemperatureStepTemperature(id: string, value: string) {
+    if (!/^-?\d*$/.test(value)) {
+      return;
+    }
+
+    setTemperatureStepInputs((prev) =>
+      prev.map((step) =>
+        step.id === id ? { ...step, temperatureInput: value } : step,
+      ),
+    );
+    setSaveMessage(null);
+  }
+
+  function adjustTemperatureStep(id: string, delta: number) {
+    setTemperatureStepInputs((prev) =>
+      prev.map((step) => {
+        if (step.id !== id) {
+          return step;
+        }
+
+        const parsed = Number(step.temperatureInput);
+        const current = Number.isInteger(parsed)
+          ? parsed
+          : settings.initialTemperature;
+        return {
+          ...step,
+          temperatureInput: String(clampTemperature(current + delta)),
+        };
+      }),
+    );
+    setSaveMessage(null);
+  }
+
+  function removeTemperatureStep(id: string) {
+    setTemperatureStepInputs((prev) => prev.filter((step) => step.id !== id));
+    setSaveMessage(null);
+  }
+
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const parsedTemperature = Number(temperatureInput);
@@ -185,11 +279,38 @@ export function AutomationSettingsForm() {
       return;
     }
 
+    const temperatureSteps: TemperatureStep[] = [];
+    for (const step of temperatureStepInputs) {
+      if (!/^\d{2}:\d{2}$/.test(step.time)) {
+        setSaveMessage("Each temperature change needs a valid time.");
+        return;
+      }
+
+      const parsedStepTemperature = Number(step.temperatureInput);
+      if (
+        !Number.isInteger(parsedStepTemperature) ||
+        parsedStepTemperature < -10 ||
+        parsedStepTemperature > 10
+      ) {
+        setSaveMessage(
+          "Each temperature change must be a whole number from -10 to 10.",
+        );
+        return;
+      }
+
+      temperatureSteps.push({
+        time: step.time,
+        temperature: parsedStepTemperature,
+      });
+    }
+    temperatureSteps.sort((a, b) => a.time.localeCompare(b.time));
+
     const { oneTimeOverride: _oneTimeOverride, ...savedSettings } = settings;
 
     updateSettings.mutate({
       ...savedSettings,
       initialTemperature: parsedTemperature,
+      temperatureSteps,
     });
   }
 
@@ -230,7 +351,9 @@ export function AutomationSettingsForm() {
           Timezone
           <TimezoneSelect
             value={settings.timezone}
-            onChange={(tz: ITimezoneOption) => updateField("timezone", tz.value)}
+            onChange={(tz: ITimezoneOption) =>
+              updateField("timezone", tz.value)
+            }
             timezones={{
               ...allTimezones,
               "America/New_York": "America/New York",
@@ -277,6 +400,98 @@ export function AutomationSettingsForm() {
               <Plus className="h-4 w-4" />
             </Button>
           </div>
+        </div>
+
+        <div className="border-t pt-4">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="text-sm font-medium">Night Temperature Changes</div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={lightButtonClass}
+              onClick={addTemperatureStep}
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              Add
+            </Button>
+          </div>
+          {temperatureStepInputs.length > 0 && (
+            <div className="grid gap-2">
+              {temperatureStepInputs.map((step) => (
+                <div
+                  key={step.id}
+                  className="grid grid-cols-[minmax(6.5rem,1fr)_2.25rem_minmax(3.5rem,4rem)_2.25rem_2.25rem] items-center gap-1.5 sm:gap-2"
+                >
+                  <input
+                    type="time"
+                    value={step.time}
+                    onChange={(event) =>
+                      updateTemperatureStepTime(step.id, event.target.value)
+                    }
+                    className="h-9 min-w-0 rounded border px-2 text-sm"
+                    aria-label="Temperature change time"
+                    required
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className={compactIconButtonClass}
+                    onClick={() => adjustTemperatureStep(step.id, -1)}
+                    aria-label="Decrease scheduled temperature"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </Button>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={step.temperatureInput}
+                    onChange={(event) =>
+                      updateTemperatureStepTemperature(
+                        step.id,
+                        event.target.value,
+                      )
+                    }
+                    onBlur={() => {
+                      if (
+                        step.temperatureInput === "" ||
+                        step.temperatureInput === "-"
+                      ) {
+                        updateTemperatureStepTemperature(
+                          step.id,
+                          String(settings.initialTemperature),
+                        );
+                      }
+                    }}
+                    className="h-9 min-w-0 rounded border px-2 text-center text-sm"
+                    aria-label="Temperature change level"
+                    required
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className={compactIconButtonClass}
+                    onClick={() => adjustTemperatureStep(step.id, 1)}
+                    aria-label="Increase scheduled temperature"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className={compactIconButtonClass}
+                    onClick={() => removeTemperatureStep(step.id)}
+                    aria-label="Remove temperature change"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="border-t pt-4">
@@ -389,7 +604,9 @@ export function AutomationSettingsForm() {
                 type="button"
                 variant="outline"
                 className={lightButtonClass}
-                onClick={() => setOneTimeDelay.mutate({ delayMinutes: minutes })}
+                onClick={() =>
+                  setOneTimeDelay.mutate({ delayMinutes: minutes })
+                }
                 disabled={setOneTimeDelay.isPending}
               >
                 {formatDelay(minutes)}
