@@ -14,10 +14,12 @@ type AutomationSettings = {
   onTime: string;
   timezone: string;
   initialTemperature: number;
-  oneTimeOffOverride: {
-    offTime: string;
-    localDate: string;
-    delayMinutes: number;
+  oneTimeOverride: {
+    onTime: string | null;
+    onLocalDate: string | null;
+    offTime: string | null;
+    offLocalDate: string | null;
+    delayMinutes: number | null;
     timezone: string;
   } | null;
 };
@@ -27,7 +29,7 @@ const DEFAULT_SETTINGS: AutomationSettings = {
   onTime: "21:00",
   timezone: "UTC",
   initialTemperature: 0,
-  oneTimeOffOverride: null,
+  oneTimeOverride: null,
 };
 
 const lightButtonClass =
@@ -50,6 +52,10 @@ export function AutomationSettingsForm() {
   const [temperatureInput, setTemperatureInput] = useState(
     String(DEFAULT_SETTINGS.initialTemperature),
   );
+  const [oneTimeOnInput, setOneTimeOnInput] = useState(DEFAULT_SETTINGS.onTime);
+  const [oneTimeOffInput, setOneTimeOffInput] = useState(
+    DEFAULT_SETTINGS.offTime,
+  );
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const settingsQuery = apiR.user.getAutomationSettings.useQuery();
@@ -71,9 +77,36 @@ export function AutomationSettingsForm() {
       setSaveMessage(`Delay failed: ${error.message}`);
     },
   });
-  const clearOneTimeDelay = apiR.user.clearOneTimeOffDelay.useMutation({
+  const setOneTimeOnTime = apiR.user.setOneTimeOnTime.useMutation({
     onSuccess: () => {
-      setSaveMessage("One-time delay cleared.");
+      setSaveMessage("One-time turn-on time saved.");
+      void settingsQuery.refetch();
+    },
+    onError: (error) => {
+      setSaveMessage(`Turn-on override failed: ${error.message}`);
+    },
+  });
+  const setOneTimeOffTime = apiR.user.setOneTimeOffTime.useMutation({
+    onSuccess: () => {
+      setSaveMessage("One-time turn-off time saved.");
+      void settingsQuery.refetch();
+    },
+    onError: (error) => {
+      setSaveMessage(`Turn-off override failed: ${error.message}`);
+    },
+  });
+  const clearOneTimeOnTime = apiR.user.clearOneTimeOnTime.useMutation({
+    onSuccess: () => {
+      setSaveMessage("One-time turn-on cleared.");
+      void settingsQuery.refetch();
+    },
+    onError: (error) => {
+      setSaveMessage(`Clear failed: ${error.message}`);
+    },
+  });
+  const clearOneTimeOffTime = apiR.user.clearOneTimeOffDelay.useMutation({
+    onSuccess: () => {
+      setSaveMessage("One-time turn-off cleared.");
       void settingsQuery.refetch();
     },
     onError: (error) => {
@@ -85,6 +118,13 @@ export function AutomationSettingsForm() {
     if (settingsQuery.data) {
       setSettings(settingsQuery.data);
       setTemperatureInput(String(settingsQuery.data.initialTemperature));
+      setOneTimeOnInput(
+        settingsQuery.data.oneTimeOverride?.onTime ?? settingsQuery.data.onTime,
+      );
+      setOneTimeOffInput(
+        settingsQuery.data.oneTimeOverride?.offTime ??
+          settingsQuery.data.offTime,
+      );
     }
   }, [settingsQuery.data]);
 
@@ -140,8 +180,7 @@ export function AutomationSettingsForm() {
       return;
     }
 
-    const { oneTimeOffOverride: _oneTimeOffOverride, ...savedSettings } =
-      settings;
+    const { oneTimeOverride: _oneTimeOverride, ...savedSettings } = settings;
 
     updateSettings.mutate({
       ...savedSettings,
@@ -236,6 +275,107 @@ export function AutomationSettingsForm() {
         </div>
 
         <div className="border-t pt-4">
+          <div className="mb-3 text-sm font-medium">One-Time Times</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm">
+              Next Turn On
+              <div className="flex gap-2">
+                <input
+                  type="time"
+                  value={oneTimeOnInput}
+                  onChange={(event) => {
+                    setOneTimeOnInput(event.target.value);
+                    setSaveMessage(null);
+                  }}
+                  className="min-w-0 flex-1 rounded border px-3 py-2"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={lightButtonClass}
+                  onClick={() =>
+                    setOneTimeOnTime.mutate({ onTime: oneTimeOnInput })
+                  }
+                  disabled={setOneTimeOnTime.isPending}
+                >
+                  Use once
+                </Button>
+              </div>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              Next Turn Off
+              <div className="flex gap-2">
+                <input
+                  type="time"
+                  value={oneTimeOffInput}
+                  onChange={(event) => {
+                    setOneTimeOffInput(event.target.value);
+                    setSaveMessage(null);
+                  }}
+                  className="min-w-0 flex-1 rounded border px-3 py-2"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={lightButtonClass}
+                  onClick={() =>
+                    setOneTimeOffTime.mutate({ offTime: oneTimeOffInput })
+                  }
+                  disabled={setOneTimeOffTime.isPending}
+                >
+                  Use once
+                </Button>
+              </div>
+            </label>
+          </div>
+
+          {settings.oneTimeOverride && (
+            <div className="mt-3 grid gap-2 text-sm">
+              {settings.oneTimeOverride.onTime &&
+                settings.oneTimeOverride.onLocalDate && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>
+                      Next turn-on:{" "}
+                      <strong>{settings.oneTimeOverride.onTime}</strong> on{" "}
+                      {settings.oneTimeOverride.onLocalDate}.
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => clearOneTimeOnTime.mutate()}
+                      disabled={clearOneTimeOnTime.isPending}
+                    >
+                      <X className="mr-1 h-4 w-4" />
+                      Clear
+                    </Button>
+                  </div>
+                )}
+              {settings.oneTimeOverride.offTime &&
+                settings.oneTimeOverride.offLocalDate && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>
+                      Next turn-off:{" "}
+                      <strong>{settings.oneTimeOverride.offTime}</strong> on{" "}
+                      {settings.oneTimeOverride.offLocalDate}.
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => clearOneTimeOffTime.mutate()}
+                      disabled={clearOneTimeOffTime.isPending}
+                    >
+                      <X className="mr-1 h-4 w-4" />
+                      Clear
+                    </Button>
+                  </div>
+                )}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t pt-4">
           <div className="mb-2 text-sm font-medium">Delay Next Turn Off</div>
           <div className="flex flex-wrap gap-2">
             {[30, 60, 120, 180].map((minutes) => (
@@ -251,25 +391,6 @@ export function AutomationSettingsForm() {
               </Button>
             ))}
           </div>
-          {settings.oneTimeOffOverride && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-              <span>
-                Next turn-off delayed to{" "}
-                <strong>{settings.oneTimeOffOverride.offTime}</strong> on{" "}
-                {settings.oneTimeOffOverride.localDate}.
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => clearOneTimeDelay.mutate()}
-                disabled={clearOneTimeDelay.isPending}
-              >
-                <X className="mr-1 h-4 w-4" />
-                Clear
-              </Button>
-            </div>
-          )}
         </div>
       </div>
 

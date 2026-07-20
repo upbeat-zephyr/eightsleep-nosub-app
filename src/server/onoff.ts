@@ -8,7 +8,8 @@ import { setHeatingLevel, turnOffSide, turnOnSide } from "./eight/eight";
 import { type Token } from "./eight/types";
 import {
   clearOneTimeOffOverride,
-  getOneTimeOffOverride,
+  clearOneTimeOnOverride,
+  getOneTimeAutomationOverride,
 } from "./automationOverrides";
 
 export type OnOffConfig = {
@@ -153,7 +154,7 @@ export async function runOnOffJob(options?: {
   for (const entry of allUsers) {
     try {
       const { user, profile } = entry;
-      const override = await getOneTimeOffOverride(user.email);
+      const override = await getOneTimeAutomationOverride(user.email);
       const userConfig = {
         off_time: profile?.wakeupTime.slice(0, 5) ?? fallbackConfig.off_time,
         on_time: profile?.bedTime.slice(0, 5) ?? fallbackConfig.on_time,
@@ -163,12 +164,26 @@ export async function runOnOffJob(options?: {
       const current = localNow(userConfig, options?.now ?? new Date());
       const currentLocalDate = formatLocalDate(current);
       let usingOneTimeOffOverride = false;
+      let usingOneTimeOnOverride = false;
 
-      if (override && override.localDate < currentLocalDate) {
+      if (override?.offLocalDate && override.offLocalDate < currentLocalDate) {
         await clearOneTimeOffOverride(user.email);
-      } else if (override?.localDate === currentLocalDate) {
+      } else if (
+        override?.offTime &&
+        override.offLocalDate === currentLocalDate
+      ) {
         userConfig.off_time = override.offTime;
         usingOneTimeOffOverride = true;
+      }
+
+      if (override?.onLocalDate && override.onLocalDate < currentLocalDate) {
+        await clearOneTimeOnOverride(user.email);
+      } else if (
+        override?.onTime &&
+        override.onLocalDate === currentLocalDate
+      ) {
+        userConfig.on_time = override.onTime;
+        usingOneTimeOnOverride = true;
       }
 
       const targetOff = timeToDate(current, userConfig.off_time);
@@ -206,6 +221,9 @@ export async function runOnOffJob(options?: {
         await retryApiCall(() =>
           setHeatingLevel(fresh, user.eightUserId, userConfig.initial_level),
         );
+        if (usingOneTimeOnOverride) {
+          await clearOneTimeOnOverride(user.email);
+        }
         onCount += 1;
       }
       ranFor += 1;
