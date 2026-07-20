@@ -6,6 +6,10 @@ import { userTemperatureProfile, users } from "~/server/db/schema";
 import { obtainFreshAccessToken } from "./eight/auth";
 import { setHeatingLevel, turnOffSide, turnOnSide } from "./eight/eight";
 import { type Token } from "./eight/types";
+import {
+  clearOneTimeOffOverride,
+  getOneTimeOffOverride,
+} from "./automationOverrides";
 
 export type OnOffConfig = {
   off_time: string;
@@ -72,6 +76,13 @@ function localNow(config: OnOffConfig, base: Date): Date {
   return new Date(
     base.toLocaleString("en-US", { timeZone: config.timezone ?? "UTC" }),
   );
+}
+
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 async function withFreshToken(userEmail: string, token: Token): Promise<Token> {
@@ -142,6 +153,7 @@ export async function runOnOffJob(options?: {
   for (const entry of allUsers) {
     try {
       const { user, profile } = entry;
+      const override = await getOneTimeOffOverride(user.email);
       const userConfig = {
         off_time: profile?.wakeupTime.slice(0, 5) ?? fallbackConfig.off_time,
         on_time: profile?.bedTime.slice(0, 5) ?? fallbackConfig.on_time,
@@ -149,6 +161,16 @@ export async function runOnOffJob(options?: {
         initial_level: profile?.initialSleepLevel ?? fallbackConfig.initial_level ?? 0,
       };
       const current = localNow(userConfig, options?.now ?? new Date());
+      const currentLocalDate = formatLocalDate(current);
+      let usingOneTimeOffOverride = false;
+
+      if (override && override.localDate < currentLocalDate) {
+        await clearOneTimeOffOverride(user.email);
+      } else if (override?.localDate === currentLocalDate) {
+        userConfig.off_time = override.offTime;
+        usingOneTimeOffOverride = true;
+      }
+
       const targetOff = timeToDate(current, userConfig.off_time);
       const targetOn = timeToDate(current, userConfig.on_time);
 
@@ -175,6 +197,9 @@ export async function runOnOffJob(options?: {
       const fresh = await withFreshToken(user.email, token);
       if (action === "off") {
         await retryApiCall(() => turnOffSide(fresh, user.eightUserId));
+        if (usingOneTimeOffOverride) {
+          await clearOneTimeOffOverride(user.email);
+        }
         offCount += 1;
       } else {
         await retryApiCall(() => turnOnSide(fresh, user.eightUserId));

@@ -12,6 +12,11 @@ import { eq } from "drizzle-orm";
 import { type Token } from "~/server/eight/types";
 import { TRPCError } from "@trpc/server";
 import jwt from "jsonwebtoken";
+import {
+  clearOneTimeOffOverride,
+  getOneTimeOffOverride,
+  setOneTimeOffOverride,
+} from "~/server/automationOverrides";
 
 class DatabaseError extends Error {
   constructor(message: string) {
@@ -47,6 +52,47 @@ const checkAuthCookie = async (headers: Headers) => {
 
   return decoded;
 };
+
+function localNow(timezone: string): Date {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: timezone }));
+}
+
+function createLocalDateWithTime(baseDate: Date, time: string): Date {
+  const [hours, minutes] = time.split(":").map(Number);
+  if (
+    hours === undefined ||
+    minutes === undefined ||
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes)
+  ) {
+    throw new Error(`Invalid time: ${time}`);
+  }
+
+  const date = new Date(baseDate);
+  date.setHours(hours, minutes, 0, 0);
+  return date;
+}
+
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatLocalTime(date: Date): string {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function nextOffDateTime(now: Date, offTime: string): Date {
+  const target = createLocalDateWithTime(now, offTime);
+  if (target.getTime() < now.getTime() - 15 * 60 * 1000) {
+    target.setDate(target.getDate() + 1);
+  }
+  return target;
+}
 
 export const userRouter = createTRPCRouter({
   checkLoginState: publicProcedure.query(async ({ ctx }) => {
@@ -201,7 +247,19 @@ export const userRouter = createTRPCRouter({
         onTime: "21:00",
         timezone: "UTC",
         initialTemperature: 0,
+        oneTimeOffOverride: null,
       };
+    }
+
+    let oneTimeOffOverride = await getOneTimeOffOverride(decoded.email);
+    if (oneTimeOffOverride) {
+      const currentLocalDate = formatLocalDate(
+        localNow(oneTimeOffOverride.timezone),
+      );
+      if (oneTimeOffOverride.localDate < currentLocalDate) {
+        await clearOneTimeOffOverride(decoded.email);
+        oneTimeOffOverride = null;
+      }
     }
 
     return {
@@ -209,6 +267,7 @@ export const userRouter = createTRPCRouter({
       onTime: profile.bedTime.slice(0, 5),
       timezone: profile.timezoneTZ,
       initialTemperature: Math.round(profile.initialSleepLevel / 10),
+      oneTimeOffOverride,
     };
   }),
   updateAutomationSettings: publicProcedure
@@ -252,6 +311,49 @@ export const userRouter = createTRPCRouter({
 
       return { success: true };
     }),
+  setOneTimeOffDelay: publicProcedure
+    .input(
+      z.object({
+        delayMinutes: z.number().int().min(15).max(12 * 60),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const decoded = await checkAuthCookie(ctx.headers);
+      const profile = await db.query.userTemperatureProfile.findFirst({
+        where: eq(userTemperatureProfile.email, decoded.email),
+      });
+
+      const offTime = profile?.wakeupTime.slice(0, 5) ?? "07:00";
+      const timezone = profile?.timezoneTZ ?? "UTC";
+      const now = localNow(timezone);
+      const baseOffDate = nextOffDateTime(now, offTime);
+      const delayedOffDate = new Date(
+        baseOffDate.getTime() + input.delayMinutes * 60 * 1000,
+      );
+
+      await setOneTimeOffOverride({
+        email: decoded.email,
+        offTime: formatLocalTime(delayedOffDate),
+        localDate: formatLocalDate(delayedOffDate),
+        delayMinutes: input.delayMinutes,
+        timezone,
+      });
+
+      return {
+        success: true,
+        oneTimeOffOverride: {
+          offTime: formatLocalTime(delayedOffDate),
+          localDate: formatLocalDate(delayedOffDate),
+          delayMinutes: input.delayMinutes,
+          timezone,
+        },
+      };
+    }),
+  clearOneTimeOffDelay: publicProcedure.mutation(async ({ ctx }) => {
+    const decoded = await checkAuthCookie(ctx.headers);
+    await clearOneTimeOffOverride(decoded.email);
+    return { success: true };
+  }),
 });
 
 async function authenticateUser(email: string, password: string) {
