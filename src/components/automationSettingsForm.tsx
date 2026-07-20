@@ -60,7 +60,12 @@ export function AutomationSettingsForm() {
 
   const settingsQuery = apiR.user.getAutomationSettings.useQuery();
   const updateSettings = apiR.user.updateAutomationSettings.useMutation({
-    onSuccess: () => {
+    onSuccess: (_result, savedSettings) => {
+      setSettings((prev) => ({
+        ...savedSettings,
+        oneTimeOverride: prev.oneTimeOverride,
+      }));
+      setTemperatureInput(String(savedSettings.initialTemperature));
       setSaveMessage("Settings saved.");
       void settingsQuery.refetch();
     },

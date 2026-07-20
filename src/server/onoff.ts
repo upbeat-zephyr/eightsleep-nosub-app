@@ -154,7 +154,6 @@ export async function runOnOffJob(options?: {
   for (const entry of allUsers) {
     try {
       const { user, profile } = entry;
-      const override = await getOneTimeAutomationOverride(user.email);
       const userConfig = {
         off_time: profile?.wakeupTime.slice(0, 5) ?? fallbackConfig.off_time,
         on_time: profile?.bedTime.slice(0, 5) ?? fallbackConfig.on_time,
@@ -166,24 +165,30 @@ export async function runOnOffJob(options?: {
       let usingOneTimeOffOverride = false;
       let usingOneTimeOnOverride = false;
 
-      if (override?.offLocalDate && override.offLocalDate < currentLocalDate) {
-        await clearOneTimeOffOverride(user.email);
-      } else if (
-        override?.offTime &&
-        override.offLocalDate === currentLocalDate
-      ) {
-        userConfig.off_time = override.offTime;
-        usingOneTimeOffOverride = true;
-      }
+      try {
+        const override = await getOneTimeAutomationOverride(user.email);
 
-      if (override?.onLocalDate && override.onLocalDate < currentLocalDate) {
-        await clearOneTimeOnOverride(user.email);
-      } else if (
-        override?.onTime &&
-        override.onLocalDate === currentLocalDate
-      ) {
-        userConfig.on_time = override.onTime;
-        usingOneTimeOnOverride = true;
+        if (override?.offLocalDate && override.offLocalDate < currentLocalDate) {
+          await clearOneTimeOffOverride(user.email);
+        } else if (
+          override?.offTime &&
+          override.offLocalDate === currentLocalDate
+        ) {
+          userConfig.off_time = override.offTime;
+          usingOneTimeOffOverride = true;
+        }
+
+        if (override?.onLocalDate && override.onLocalDate < currentLocalDate) {
+          await clearOneTimeOnOverride(user.email);
+        } else if (
+          override?.onTime &&
+          override.onLocalDate === currentLocalDate
+        ) {
+          userConfig.on_time = override.onTime;
+          usingOneTimeOnOverride = true;
+        }
+      } catch (error) {
+        console.error(`Failed to load one-time override for ${user.email}:`, error);
       }
 
       const targetOff = timeToDate(current, userConfig.off_time);

@@ -19,6 +19,7 @@ import {
   getOneTimeAutomationOverride,
   setOneTimeOffOverride,
   setOneTimeOnOverride,
+  type OneTimeAutomationOverride,
 } from "~/server/automationOverrides";
 
 class DatabaseError extends Error {
@@ -243,32 +244,40 @@ export const userRouter = createTRPCRouter({
     const profile = await db.query.userTemperatureProfile.findFirst({
       where: eq(userTemperatureProfile.email, decoded.email),
     });
-    let oneTimeOverride = await getOneTimeAutomationOverride(decoded.email);
-    if (oneTimeOverride) {
-      const currentLocalDate = formatLocalDate(localNow(oneTimeOverride.timezone));
-      if (
-        oneTimeOverride.onLocalDate !== null &&
-        oneTimeOverride.onLocalDate < currentLocalDate
-      ) {
-        await clearOneTimeOnOverride(decoded.email);
-        oneTimeOverride.onTime = null;
-        oneTimeOverride.onLocalDate = null;
+    let oneTimeOverride: OneTimeAutomationOverride | null = null;
+
+    try {
+      oneTimeOverride = await getOneTimeAutomationOverride(decoded.email);
+      if (oneTimeOverride) {
+        const currentLocalDate = formatLocalDate(
+          localNow(oneTimeOverride.timezone),
+        );
+        if (
+          oneTimeOverride.onLocalDate !== null &&
+          oneTimeOverride.onLocalDate < currentLocalDate
+        ) {
+          await clearOneTimeOnOverride(decoded.email);
+          oneTimeOverride.onTime = null;
+          oneTimeOverride.onLocalDate = null;
+        }
+        if (
+          oneTimeOverride.offLocalDate !== null &&
+          oneTimeOverride.offLocalDate < currentLocalDate
+        ) {
+          await clearOneTimeOffOverride(decoded.email);
+          oneTimeOverride.offTime = null;
+          oneTimeOverride.offLocalDate = null;
+          oneTimeOverride.delayMinutes = null;
+        }
+        if (
+          oneTimeOverride.onTime === null &&
+          oneTimeOverride.offTime === null
+        ) {
+          oneTimeOverride = null;
+        }
       }
-      if (
-        oneTimeOverride.offLocalDate !== null &&
-        oneTimeOverride.offLocalDate < currentLocalDate
-      ) {
-        await clearOneTimeOffOverride(decoded.email);
-        oneTimeOverride.offTime = null;
-        oneTimeOverride.offLocalDate = null;
-        oneTimeOverride.delayMinutes = null;
-      }
-      if (
-        oneTimeOverride.onTime === null &&
-        oneTimeOverride.offTime === null
-      ) {
-        oneTimeOverride = null;
-      }
+    } catch (error) {
+      console.error("Failed to load one-time override:", error);
     }
 
     if (!profile) {
