@@ -30,6 +30,10 @@ const DEFAULT_SETTINGS: AutomationSettings = {
   oneTimeOffOverride: null,
 };
 
+const lightButtonClass =
+  "border-gray-300 bg-white text-gray-950 shadow-sm hover:bg-gray-100 disabled:bg-gray-100 disabled:text-gray-500";
+const iconButtonClass = `${lightButtonClass} h-11 w-11 shrink-0`;
+
 function clampTemperature(value: number): number {
   return Math.min(10, Math.max(-10, value));
 }
@@ -199,6 +203,7 @@ export function AutomationSettingsForm() {
               type="button"
               variant="outline"
               size="icon"
+              className={iconButtonClass}
               onClick={() => adjustTemperature(-1)}
               aria-label="Decrease initial temperature"
             >
@@ -221,6 +226,7 @@ export function AutomationSettingsForm() {
               type="button"
               variant="outline"
               size="icon"
+              className={iconButtonClass}
               onClick={() => adjustTemperature(1)}
               aria-label="Increase initial temperature"
             >
@@ -237,6 +243,7 @@ export function AutomationSettingsForm() {
                 key={minutes}
                 type="button"
                 variant="outline"
+                className={lightButtonClass}
                 onClick={() => setOneTimeDelay.mutate({ delayMinutes: minutes })}
                 disabled={setOneTimeDelay.isPending}
               >
