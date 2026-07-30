@@ -26,7 +26,7 @@ export default function ClientHome({
             <LogoutButton onLogoutSuccess={() => setIsLoggedIn(false)} />
           </div>
         </nav>
-        <div className="container flex justify-center px-4 py-8">
+        <div className="container flex min-w-0 justify-center px-3 py-4 sm:px-4 sm:py-8">
           <AutomationSettingsForm />
         </div>
       </main>

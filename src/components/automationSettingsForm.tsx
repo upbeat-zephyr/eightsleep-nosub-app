@@ -321,33 +321,33 @@ export function AutomationSettingsForm() {
   return (
     <form
       onSubmit={onSubmit}
-      className="mx-auto mt-4 w-full max-w-xl rounded-lg bg-white p-6 text-gray-900 shadow-xl"
+      className="mx-auto w-full min-w-0 max-w-xl rounded-lg bg-white p-4 text-gray-900 shadow-xl sm:mt-4 sm:p-6"
     >
       <h2 className="mb-4 text-xl font-bold">Automation Settings</h2>
       <div className="grid gap-4">
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
           Turn Off Time
           <input
             type="time"
             value={settings.offTime}
             onChange={(event) => updateField("offTime", event.target.value)}
-            className="rounded border px-3 py-2"
+            className="w-full min-w-0 rounded border px-3 py-2"
             required
           />
         </label>
 
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
           Turn On Time
           <input
             type="time"
             value={settings.onTime}
             onChange={(event) => updateField("onTime", event.target.value)}
-            className="rounded border px-3 py-2"
+            className="w-full min-w-0 rounded border px-3 py-2"
             required
           />
         </label>
 
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
           Timezone
           <TimezoneSelect
             value={settings.timezone}
@@ -359,13 +359,13 @@ export function AutomationSettingsForm() {
               "America/New_York": "America/New York",
               "America/Los_Angeles": "America/Los Angeles",
             }}
-            className="text-sm"
+            className="min-w-0 max-w-full text-sm"
           />
         </label>
 
         <div className="flex flex-col gap-1 text-sm">
           Initial Temperature Level (-10 to 10)
-          <div className="flex items-center gap-2">
+          <div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2">
             <Button
               type="button"
               variant="outline"
@@ -421,7 +421,7 @@ export function AutomationSettingsForm() {
               {temperatureStepInputs.map((step) => (
                 <div
                   key={step.id}
-                  className="grid grid-cols-[minmax(6.5rem,1fr)_2.25rem_minmax(3.5rem,4rem)_2.25rem_2.25rem] items-center gap-1.5 sm:gap-2"
+                  className="grid min-w-0 grid-cols-[2.25rem_minmax(3.5rem,1fr)_2.25rem_2.25rem] items-center gap-1.5 sm:grid-cols-[minmax(6.5rem,1fr)_2.25rem_minmax(3.5rem,4rem)_2.25rem_2.25rem] sm:gap-2"
                 >
                   <input
                     type="time"
@@ -429,7 +429,7 @@ export function AutomationSettingsForm() {
                     onChange={(event) =>
                       updateTemperatureStepTime(step.id, event.target.value)
                     }
-                    className="h-9 min-w-0 rounded border px-2 text-sm"
+                    className="col-span-4 h-9 min-w-0 rounded border px-2 text-sm sm:col-span-1"
                     aria-label="Temperature change time"
                     required
                   />
@@ -497,9 +497,9 @@ export function AutomationSettingsForm() {
         <div className="border-t pt-4">
           <div className="mb-3 text-sm font-medium">One-Time Times</div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm">
+            <label className="flex min-w-0 flex-col gap-1 text-sm">
               Next Turn On
-              <div className="flex gap-2">
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
                 <input
                   type="time"
                   value={oneTimeOnInput}
@@ -522,9 +522,9 @@ export function AutomationSettingsForm() {
                 </Button>
               </div>
             </label>
-            <label className="flex flex-col gap-1 text-sm">
+            <label className="flex min-w-0 flex-col gap-1 text-sm">
               Next Turn Off
-              <div className="flex gap-2">
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
                 <input
                   type="time"
                   value={oneTimeOffInput}
@@ -616,7 +616,7 @@ export function AutomationSettingsForm() {
         </div>
       </div>
 
-      <div className="mt-5 flex items-center gap-3">
+      <div className="mt-5 flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={updateSettings.isPending}>
           {updateSettings.isPending ? "Saving..." : "Save settings"}
         </Button>
