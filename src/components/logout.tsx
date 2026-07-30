@@ -6,7 +6,9 @@ interface LogoutButtonProps {
   onLogoutSuccess: () => void;
 }
 
-export const LogoutButton: React.FC<LogoutButtonProps> = ({ onLogoutSuccess }) => {
+export const LogoutButton: React.FC<LogoutButtonProps> = ({
+  onLogoutSuccess,
+}) => {
   const logoutMutation = apiR.user.logout.useMutation({
     onSuccess: () => {
       // Handle successful logout
@@ -27,13 +29,13 @@ export const LogoutButton: React.FC<LogoutButtonProps> = ({ onLogoutSuccess }) =
     <>
       <button
         onClick={handleLogout}
-        className="w-24 rounded-md border border-transparent bg-red-950 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+        className="min-h-9 rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#22024f] disabled:cursor-wait disabled:opacity-60"
         disabled={logoutMutation.isPending}
       >
         {logoutMutation.isPending ? "Logging out..." : "Logout"}
       </button>
       {logoutMutation.isError && (
-        <p className="mt-4 text-center text-sm text-red-600">
+        <p className="absolute right-4 top-14 z-10 rounded-md bg-red-950 px-3 py-2 text-sm text-white shadow-lg">
           {logoutMutation.error.message}
         </p>
       )}

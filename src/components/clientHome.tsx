@@ -12,6 +12,27 @@ export default function ClientHome({
 }) {
   const [isLoggedIn, setIsLoggedIn] = useState(initialLoginState);
 
+  if (isLoggedIn) {
+    return (
+      <main className="min-h-screen bg-gradient-to-b from-[#2e026d] to-[#15162c] text-white">
+        <nav
+          aria-label="Application"
+          className="border-b border-white/10 bg-[#22024f]/70"
+        >
+          <div className="container flex h-14 items-center justify-between px-4">
+            <span className="text-base font-bold tracking-tight">
+              Eightsleep <span className="text-[hsl(280,100%,70%)]">Nosub</span>
+            </span>
+            <LogoutButton onLogoutSuccess={() => setIsLoggedIn(false)} />
+          </div>
+        </nav>
+        <div className="container flex justify-center px-4 py-8">
+          <AutomationSettingsForm />
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-[#2e026d] to-[#15162c] text-white">
       <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16">
@@ -22,19 +43,7 @@ export default function ClientHome({
           Configure on/off times, timezone, and your initial temperature inside
           the app.
         </p>
-        <div className="flex flex-col items-center gap-2">
-          {!isLoggedIn && (
-            <EightLoginDialog onLoginSuccess={() => setIsLoggedIn(true)} />
-          )}
-          {isLoggedIn && (
-            <>
-              <div className="mx-auto flex w-full flex-row items-center justify-center rounded-lg bg-white p-6 shadow-xl">
-                <LogoutButton onLogoutSuccess={() => setIsLoggedIn(false)} />
-              </div>
-              <AutomationSettingsForm />
-            </>
-          )}
-        </div>
+        <EightLoginDialog onLoginSuccess={() => setIsLoggedIn(true)} />
       </div>
     </main>
   );
