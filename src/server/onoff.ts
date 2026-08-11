@@ -12,6 +12,7 @@ import {
   getOneTimeAutomationOverride,
 } from "./automationOverrides";
 import { getTemperatureScheduleSteps } from "./temperatureSchedule";
+import { processExpiredNaps } from "./napControl";
 
 export type OnOffConfig = {
   off_time: string;
@@ -160,6 +161,7 @@ export async function runOnOffJob(options?: {
   onCount: number;
   offCount: number;
   temperatureStepCount: number;
+  napOffCount: number;
   skippedCount: number;
 }> {
   const fallbackConfig = loadOnOffConfig();
@@ -181,10 +183,18 @@ export async function runOnOffJob(options?: {
   let offCount = 0;
   let temperatureStepCount = 0;
   let skippedCount = 0;
+  const napResult = await processExpiredNaps(options?.now ?? new Date());
 
   for (const entry of allUsers) {
     try {
       const { user, profile } = entry;
+      if (
+        napResult.activeTargetEmails.has(user.email) ||
+        napResult.processedTargetEmails.has(user.email)
+      ) {
+        skippedCount += 1;
+        continue;
+      }
       const userConfig = {
         off_time: profile?.wakeupTime.slice(0, 5) ?? fallbackConfig.off_time,
         on_time: profile?.bedTime.slice(0, 5) ?? fallbackConfig.on_time,
@@ -305,5 +315,12 @@ export async function runOnOffJob(options?: {
     }
   }
 
-  return { ranFor, onCount, offCount, temperatureStepCount, skippedCount };
+  return {
+    ranFor,
+    onCount,
+    offCount,
+    temperatureStepCount,
+    napOffCount: napResult.offCount,
+    skippedCount,
+  };
 }

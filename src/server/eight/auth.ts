@@ -1,8 +1,16 @@
-import { AUTH_URL, DEFAULT_AUTH_HEADERS, KNOWN_CLIENT_ID, KNOWN_CLIENT_SECRET } from './constants';
-import { EightTokenSchema, TokenResponse, type Token } from './types';
+import {
+  AUTH_URL,
+  DEFAULT_AUTH_HEADERS,
+  KNOWN_CLIENT_ID,
+  KNOWN_CLIENT_SECRET,
+} from "./constants";
+import { EightTokenSchema, type TokenResponse, type Token } from "./types";
 
 export class AuthError extends Error {
-  constructor(message: string, public statusCode?: number) {
+  constructor(
+    message: string,
+    public statusCode?: number,
+  ) {
     super(message);
     this.name = "AuthError";
   }
@@ -15,16 +23,21 @@ export class ValidationError extends Error {
   }
 }
 
-async function makeAuthRequest(data: Record<string, string>): Promise<TokenResponse> {
+async function makeAuthRequest(
+  data: Record<string, string>,
+): Promise<TokenResponse> {
   try {
     const response = await fetch(AUTH_URL, {
-      method: 'POST',
+      method: "POST",
       headers: DEFAULT_AUTH_HEADERS,
       body: JSON.stringify(data),
     });
 
     if (!response.ok) {
-      throw new AuthError(`Auth request failed. Bad Eightsleep Credentials?`, response.status);
+      throw new AuthError(
+        `Auth request failed. Bad Eightsleep Credentials?`,
+        response.status,
+      );
     }
 
     const json: unknown = await response.json();
@@ -35,14 +48,19 @@ async function makeAuthRequest(data: Record<string, string>): Promise<TokenRespo
     if (error instanceof AuthError) {
       throw error;
     } else if (error instanceof Error) {
-      throw new ValidationError(`Failed to validate response: ${error.message}`);
+      throw new ValidationError(
+        `Failed to validate response: ${error.message}`,
+      );
     } else {
       throw new AuthError("An unexpected error occurred during authentication");
     }
   }
 }
 
-export async function authenticate(email: string, password: string): Promise<Token> {
+export async function authenticate(
+  email: string,
+  password: string,
+): Promise<Token> {
   const data = {
     client_id: KNOWN_CLIENT_ID,
     client_secret: KNOWN_CLIENT_SECRET,
@@ -54,7 +72,9 @@ export async function authenticate(email: string, password: string): Promise<Tok
   try {
     const tokenResponse = await makeAuthRequest(data);
     if (!tokenResponse.userId) {
-      throw new AuthError("Authentication response from eightsleep API should always have a userId when loggin in with credetials");
+      throw new AuthError(
+        "Authentication response from eightsleep API should always have a userId when loggin in with credetials",
+      );
     }
     return {
       eightAccessToken: tokenResponse.access_token,
@@ -77,7 +97,10 @@ export async function authenticate(email: string, password: string): Promise<Tok
   }
 }
 
-export async function obtainFreshAccessToken(refreshToken: string, existingUserId: string): Promise<Token> {
+export async function obtainFreshAccessToken(
+  refreshToken: string,
+  existingUserId: string,
+): Promise<Token> {
   const data = {
     client_id: KNOWN_CLIENT_ID,
     client_secret: KNOWN_CLIENT_SECRET,

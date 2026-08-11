@@ -3,7 +3,15 @@
 import { useEffect, useState } from "react";
 import { apiR } from "~/trpc/react";
 import { Button } from "~/components/ui/button";
-import { Minus, Plus, X } from "lucide-react";
+import {
+  CalendarClock,
+  Clock3,
+  Minus,
+  Moon,
+  Plus,
+  TimerReset,
+  X,
+} from "lucide-react";
 import TimezoneSelect, {
   allTimezones,
   type ITimezoneOption,
@@ -72,7 +80,11 @@ function createTemperatureStepInput(
   };
 }
 
-export function AutomationSettingsForm() {
+export function AutomationSettingsForm({
+  targetEmail,
+}: {
+  targetEmail: string;
+}) {
   const [settings, setSettings] =
     useState<AutomationSettings>(DEFAULT_SETTINGS);
   const [temperatureInput, setTemperatureInput] = useState(
@@ -87,7 +99,9 @@ export function AutomationSettingsForm() {
   >([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
-  const settingsQuery = apiR.user.getAutomationSettings.useQuery();
+  const settingsQuery = apiR.user.getAutomationSettings.useQuery({
+    targetEmail,
+  });
   const updateSettings = apiR.user.updateAutomationSettings.useMutation({
     onSuccess: (_result, savedSettings) => {
       const savedTemperatureSteps = savedSettings.temperatureSteps ?? [];
@@ -305,12 +319,13 @@ export function AutomationSettingsForm() {
     }
     temperatureSteps.sort((a, b) => a.time.localeCompare(b.time));
 
-    const { oneTimeOverride: _oneTimeOverride, ...savedSettings } = settings;
-
     updateSettings.mutate({
-      ...savedSettings,
+      offTime: settings.offTime,
+      onTime: settings.onTime,
+      timezone: settings.timezone,
       initialTemperature: parsedTemperature,
       temperatureSteps,
+      targetEmail,
     });
   }
 
@@ -321,9 +336,14 @@ export function AutomationSettingsForm() {
   return (
     <form
       onSubmit={onSubmit}
-      className="mx-auto w-full min-w-0 max-w-xl rounded-lg bg-white p-4 text-gray-900 shadow-xl sm:mt-4 sm:p-6"
+      className="mx-auto w-full min-w-0 max-w-xl rounded-3xl bg-white p-4 text-slate-900 shadow-2xl shadow-black/20 ring-1 ring-white/20 sm:mt-4 sm:p-6"
     >
-      <h2 className="mb-4 text-xl font-bold">Automation Settings</h2>
+      <h1 className="mb-5 flex items-center gap-3 text-2xl font-bold tracking-tight">
+        <span className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-100 text-[#2e026d]">
+          <CalendarClock className="h-5 w-5" aria-hidden="true" />
+        </span>
+        Automation
+      </h1>
       <div className="grid gap-4">
         <label className="flex min-w-0 flex-col gap-1 text-sm">
           Turn Off Time
@@ -402,9 +422,12 @@ export function AutomationSettingsForm() {
           </div>
         </div>
 
-        <div className="border-t pt-4">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="text-sm font-medium">Night Temperature Changes</div>
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Moon className="h-4 w-4 text-violet-700" aria-hidden="true" />
+              Night Temperature Changes
+            </div>
             <Button
               type="button"
               variant="outline"
@@ -494,8 +517,11 @@ export function AutomationSettingsForm() {
           )}
         </div>
 
-        <div className="border-t pt-4">
-          <div className="mb-3 text-sm font-medium">One-Time Times</div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <Clock3 className="h-4 w-4 text-violet-700" aria-hidden="true" />
+            One-Time Times
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex min-w-0 flex-col gap-1 text-sm">
               Next Turn On
@@ -514,7 +540,10 @@ export function AutomationSettingsForm() {
                   variant="outline"
                   className={lightButtonClass}
                   onClick={() =>
-                    setOneTimeOnTime.mutate({ onTime: oneTimeOnInput })
+                    setOneTimeOnTime.mutate({
+                      onTime: oneTimeOnInput,
+                      targetEmail,
+                    })
                   }
                   disabled={setOneTimeOnTime.isPending}
                 >
@@ -539,7 +568,10 @@ export function AutomationSettingsForm() {
                   variant="outline"
                   className={lightButtonClass}
                   onClick={() =>
-                    setOneTimeOffTime.mutate({ offTime: oneTimeOffInput })
+                    setOneTimeOffTime.mutate({
+                      offTime: oneTimeOffInput,
+                      targetEmail,
+                    })
                   }
                   disabled={setOneTimeOffTime.isPending}
                 >
@@ -563,7 +595,7 @@ export function AutomationSettingsForm() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => clearOneTimeOnTime.mutate()}
+                      onClick={() => clearOneTimeOnTime.mutate({ targetEmail })}
                       disabled={clearOneTimeOnTime.isPending}
                     >
                       <X className="mr-1 h-4 w-4" />
@@ -583,7 +615,9 @@ export function AutomationSettingsForm() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => clearOneTimeOffTime.mutate()}
+                      onClick={() =>
+                        clearOneTimeOffTime.mutate({ targetEmail })
+                      }
                       disabled={clearOneTimeOffTime.isPending}
                     >
                       <X className="mr-1 h-4 w-4" />
@@ -595,8 +629,14 @@ export function AutomationSettingsForm() {
           )}
         </div>
 
-        <div className="border-t pt-4">
-          <div className="mb-2 text-sm font-medium">Delay Next Turn Off</div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <TimerReset
+              className="h-4 w-4 text-violet-700"
+              aria-hidden="true"
+            />
+            Delay Next Turn Off
+          </div>
           <div className="flex flex-wrap gap-2">
             {[30, 60, 120, 180].map((minutes) => (
               <Button
@@ -605,7 +645,10 @@ export function AutomationSettingsForm() {
                 variant="outline"
                 className={lightButtonClass}
                 onClick={() =>
-                  setOneTimeDelay.mutate({ delayMinutes: minutes })
+                  setOneTimeDelay.mutate({
+                    delayMinutes: minutes,
+                    targetEmail,
+                  })
                 }
                 disabled={setOneTimeDelay.isPending}
               >

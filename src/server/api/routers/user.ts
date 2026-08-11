@@ -8,10 +8,15 @@ import {
   obtainFreshAccessToken,
   AuthError,
 } from "~/server/eight/auth";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { type Token } from "~/server/eight/types";
 import { TRPCError } from "@trpc/server";
 import jwt from "jsonwebtoken";
+import {
+  authorizeTargetEmail,
+  getApprovedEmails,
+  getSessionEmail,
+} from "~/server/household";
 import {
   clearOneTimeAutomationOverride,
   clearOneTimeOffOverride,
@@ -32,34 +37,6 @@ class DatabaseError extends Error {
     this.name = "DatabaseError";
   }
 }
-
-const checkAuthCookie = async (headers: Headers) => {
-  const cookies = headers.get("cookie");
-  console.log("Checking cookies");
-  if (!cookies) {
-    throw new AuthError(`Auth request failed. No cookies found.`, 401);
-  }
-
-  const token = cookies
-    .split("; ")
-    .find((row) => row.startsWith("8slpAutht="))
-    ?.split("=")[1];
-  console.log("Token:", token);
-
-  if (!token) {
-    throw new AuthError(`Auth request failed. No cookies found.`, 401);
-  }
-  let decoded;
-  try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
-      email: string;
-    };
-  } catch {
-    throw new AuthError(`Auth request failed. Invalid token.`, 401);
-  }
-
-  return decoded;
-};
 
 function localNow(timezone: string): Date {
   return new Date(new Date().toLocaleString("en-US", { timeZone: timezone }));
@@ -107,7 +84,7 @@ export const userRouter = createTRPCRouter({
     try {
       let decoded;
       try {
-        decoded = await checkAuthCookie(ctx.headers);
+        decoded = { email: await getSessionEmail(ctx.headers) };
       } catch (error) {
         if (error instanceof AuthError) {
           return { loginRequired: true };
@@ -177,22 +154,26 @@ export const userRouter = createTRPCRouter({
       try {
         const authResult = await authenticateUser(input.email, input.password);
 
-        const approvedEmails = process.env
-          .APPROVED_EMAILS!.split(",")
-          .map((email) => email.toLowerCase());
+        const approvedEmails = getApprovedEmails();
 
         if (!approvedEmails.includes(input.email.toLowerCase())) {
           throw new AuthError("Email not approved");
         }
 
-        await saveUserToDatabase(input.email, authResult);
+        const existingUser = await db.query.users.findFirst({
+          where: sql`lower(${users.email}) = ${input.email.toLowerCase()}`,
+        });
+        const accountEmail =
+          existingUser?.email ?? input.email.trim().toLowerCase();
+
+        await saveUserToDatabase(accountEmail, authResult);
 
         const jwtSecret = process.env.JWT_SECRET;
         if (!jwtSecret) {
           throw new Error("JWT_SECRET is not defined in the environment");
         }
 
-        const token = jwt.sign({ email: input.email }, jwtSecret, {
+        const token = jwt.sign({ email: accountEmail }, jwtSecret, {
           expiresIn: "90d",
         });
         const threeMonthsInSeconds = 90 * 24 * 60 * 60; // 90 days
@@ -245,78 +226,84 @@ export const userRouter = createTRPCRouter({
       });
     }
   }),
-  getAutomationSettings: publicProcedure.query(async ({ ctx }) => {
-    const decoded = await checkAuthCookie(ctx.headers);
-    const profile = await db.query.userTemperatureProfile.findFirst({
-      where: eq(userTemperatureProfile.email, decoded.email),
-    });
-    let oneTimeOverride: OneTimeAutomationOverride | null = null;
-    let temperatureSteps: Array<{ time: string; temperature: number }> = [];
+  getAutomationSettings: publicProcedure
+    .input(z.object({ targetEmail: z.string().email().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const requesterEmail = await getSessionEmail(ctx.headers);
+      const targetEmail = await authorizeTargetEmail(
+        requesterEmail,
+        input?.targetEmail,
+      );
+      const profile = await db.query.userTemperatureProfile.findFirst({
+        where: eq(userTemperatureProfile.email, targetEmail),
+      });
+      let oneTimeOverride: OneTimeAutomationOverride | null = null;
+      let temperatureSteps: Array<{ time: string; temperature: number }> = [];
 
-    try {
-      oneTimeOverride = await getOneTimeAutomationOverride(decoded.email);
-      if (oneTimeOverride) {
-        const currentLocalDate = formatLocalDate(
-          localNow(oneTimeOverride.timezone),
-        );
-        if (
-          oneTimeOverride.onLocalDate !== null &&
-          oneTimeOverride.onLocalDate < currentLocalDate
-        ) {
-          await clearOneTimeOnOverride(decoded.email);
-          oneTimeOverride.onTime = null;
-          oneTimeOverride.onLocalDate = null;
+      try {
+        oneTimeOverride = await getOneTimeAutomationOverride(targetEmail);
+        if (oneTimeOverride) {
+          const currentLocalDate = formatLocalDate(
+            localNow(oneTimeOverride.timezone),
+          );
+          if (
+            oneTimeOverride.onLocalDate !== null &&
+            oneTimeOverride.onLocalDate < currentLocalDate
+          ) {
+            await clearOneTimeOnOverride(targetEmail);
+            oneTimeOverride.onTime = null;
+            oneTimeOverride.onLocalDate = null;
+          }
+          if (
+            oneTimeOverride.offLocalDate !== null &&
+            oneTimeOverride.offLocalDate < currentLocalDate
+          ) {
+            await clearOneTimeOffOverride(targetEmail);
+            oneTimeOverride.offTime = null;
+            oneTimeOverride.offLocalDate = null;
+            oneTimeOverride.delayMinutes = null;
+          }
+          if (
+            oneTimeOverride.onTime === null &&
+            oneTimeOverride.offTime === null
+          ) {
+            oneTimeOverride = null;
+          }
         }
-        if (
-          oneTimeOverride.offLocalDate !== null &&
-          oneTimeOverride.offLocalDate < currentLocalDate
-        ) {
-          await clearOneTimeOffOverride(decoded.email);
-          oneTimeOverride.offTime = null;
-          oneTimeOverride.offLocalDate = null;
-          oneTimeOverride.delayMinutes = null;
-        }
-        if (
-          oneTimeOverride.onTime === null &&
-          oneTimeOverride.offTime === null
-        ) {
-          oneTimeOverride = null;
-        }
+      } catch (error) {
+        console.error("Failed to load one-time override:", error);
       }
-    } catch (error) {
-      console.error("Failed to load one-time override:", error);
-    }
 
-    try {
-      const savedSteps = await getTemperatureScheduleSteps(decoded.email);
-      temperatureSteps = savedSteps.map((step) => ({
-        time: step.time,
-        temperature: Math.round(step.level / 10),
-      }));
-    } catch (error) {
-      console.error("Failed to load temperature schedule:", error);
-    }
+      try {
+        const savedSteps = await getTemperatureScheduleSteps(targetEmail);
+        temperatureSteps = savedSteps.map((step) => ({
+          time: step.time,
+          temperature: Math.round(step.level / 10),
+        }));
+      } catch (error) {
+        console.error("Failed to load temperature schedule:", error);
+      }
 
-    if (!profile) {
+      if (!profile) {
+        return {
+          offTime: "07:00",
+          onTime: "21:00",
+          timezone: "UTC",
+          initialTemperature: 0,
+          temperatureSteps,
+          oneTimeOverride,
+        };
+      }
+
       return {
-        offTime: "07:00",
-        onTime: "21:00",
-        timezone: "UTC",
-        initialTemperature: 0,
+        offTime: profile.wakeupTime.slice(0, 5),
+        onTime: profile.bedTime.slice(0, 5),
+        timezone: profile.timezoneTZ,
+        initialTemperature: Math.round(profile.initialSleepLevel / 10),
         temperatureSteps,
         oneTimeOverride,
       };
-    }
-
-    return {
-      offTime: profile.wakeupTime.slice(0, 5),
-      onTime: profile.bedTime.slice(0, 5),
-      timezone: profile.timezoneTZ,
-      initialTemperature: Math.round(profile.initialSleepLevel / 10),
-      temperatureSteps,
-      oneTimeOverride,
-    };
-  }),
+    }),
   updateAutomationSettings: publicProcedure
     .input(
       z.object({
@@ -332,10 +319,15 @@ export const userRouter = createTRPCRouter({
             }),
           )
           .default([]),
+        targetEmail: z.string().email().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const decoded = await checkAuthCookie(ctx.headers);
+      const requesterEmail = await getSessionEmail(ctx.headers);
+      const targetEmail = await authorizeTargetEmail(
+        requesterEmail,
+        input.targetEmail,
+      );
       const dbLevel = input.initialTemperature * 10;
       const temperatureSteps = input.temperatureSteps
         .map((step) => ({
@@ -347,7 +339,7 @@ export const userRouter = createTRPCRouter({
       await db
         .insert(userTemperatureProfile)
         .values({
-          email: decoded.email,
+          email: targetEmail,
           bedTime: `${input.onTime}:00`,
           wakeupTime: `${input.offTime}:00`,
           timezoneTZ: input.timezone,
@@ -370,7 +362,7 @@ export const userRouter = createTRPCRouter({
         })
         .execute();
 
-      await replaceTemperatureScheduleSteps(decoded.email, temperatureSteps);
+      await replaceTemperatureScheduleSteps(targetEmail, temperatureSteps);
 
       return { success: true };
     }),
@@ -382,12 +374,17 @@ export const userRouter = createTRPCRouter({
           .int()
           .min(15)
           .max(12 * 60),
+        targetEmail: z.string().email().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const decoded = await checkAuthCookie(ctx.headers);
+      const requesterEmail = await getSessionEmail(ctx.headers);
+      const targetEmail = await authorizeTargetEmail(
+        requesterEmail,
+        input.targetEmail,
+      );
       const profile = await db.query.userTemperatureProfile.findFirst({
-        where: eq(userTemperatureProfile.email, decoded.email),
+        where: eq(userTemperatureProfile.email, targetEmail),
       });
 
       const offTime = profile?.wakeupTime.slice(0, 5) ?? "07:00";
@@ -399,7 +396,7 @@ export const userRouter = createTRPCRouter({
       );
 
       await setOneTimeOffOverride({
-        email: decoded.email,
+        email: targetEmail,
         offTime: formatLocalTime(delayedOffDate),
         offLocalDate: formatLocalDate(delayedOffDate),
         delayMinutes: input.delayMinutes,
@@ -422,18 +419,23 @@ export const userRouter = createTRPCRouter({
     .input(
       z.object({
         onTime: z.string().regex(/^\d{2}:\d{2}$/),
+        targetEmail: z.string().email().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const decoded = await checkAuthCookie(ctx.headers);
+      const requesterEmail = await getSessionEmail(ctx.headers);
+      const targetEmail = await authorizeTargetEmail(
+        requesterEmail,
+        input.targetEmail,
+      );
       const profile = await db.query.userTemperatureProfile.findFirst({
-        where: eq(userTemperatureProfile.email, decoded.email),
+        where: eq(userTemperatureProfile.email, targetEmail),
       });
       const timezone = profile?.timezoneTZ ?? "UTC";
       const targetDate = nextLocalDateTime(localNow(timezone), input.onTime);
 
       await setOneTimeOnOverride({
-        email: decoded.email,
+        email: targetEmail,
         onTime: input.onTime,
         onLocalDate: formatLocalDate(targetDate),
         timezone,
@@ -445,18 +447,23 @@ export const userRouter = createTRPCRouter({
     .input(
       z.object({
         offTime: z.string().regex(/^\d{2}:\d{2}$/),
+        targetEmail: z.string().email().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const decoded = await checkAuthCookie(ctx.headers);
+      const requesterEmail = await getSessionEmail(ctx.headers);
+      const targetEmail = await authorizeTargetEmail(
+        requesterEmail,
+        input.targetEmail,
+      );
       const profile = await db.query.userTemperatureProfile.findFirst({
-        where: eq(userTemperatureProfile.email, decoded.email),
+        where: eq(userTemperatureProfile.email, targetEmail),
       });
       const timezone = profile?.timezoneTZ ?? "UTC";
       const targetDate = nextLocalDateTime(localNow(timezone), input.offTime);
 
       await setOneTimeOffOverride({
-        email: decoded.email,
+        email: targetEmail,
         offTime: input.offTime,
         offLocalDate: formatLocalDate(targetDate),
         delayMinutes: null,
@@ -465,21 +472,39 @@ export const userRouter = createTRPCRouter({
 
       return { success: true };
     }),
-  clearOneTimeOnTime: publicProcedure.mutation(async ({ ctx }) => {
-    const decoded = await checkAuthCookie(ctx.headers);
-    await clearOneTimeOnOverride(decoded.email);
-    return { success: true };
-  }),
-  clearOneTimeOffDelay: publicProcedure.mutation(async ({ ctx }) => {
-    const decoded = await checkAuthCookie(ctx.headers);
-    await clearOneTimeOffOverride(decoded.email);
-    return { success: true };
-  }),
-  clearOneTimeAutomationOverride: publicProcedure.mutation(async ({ ctx }) => {
-    const decoded = await checkAuthCookie(ctx.headers);
-    await clearOneTimeAutomationOverride(decoded.email);
-    return { success: true };
-  }),
+  clearOneTimeOnTime: publicProcedure
+    .input(z.object({ targetEmail: z.string().email().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const requesterEmail = await getSessionEmail(ctx.headers);
+      const targetEmail = await authorizeTargetEmail(
+        requesterEmail,
+        input?.targetEmail,
+      );
+      await clearOneTimeOnOverride(targetEmail);
+      return { success: true };
+    }),
+  clearOneTimeOffDelay: publicProcedure
+    .input(z.object({ targetEmail: z.string().email().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const requesterEmail = await getSessionEmail(ctx.headers);
+      const targetEmail = await authorizeTargetEmail(
+        requesterEmail,
+        input?.targetEmail,
+      );
+      await clearOneTimeOffOverride(targetEmail);
+      return { success: true };
+    }),
+  clearOneTimeAutomationOverride: publicProcedure
+    .input(z.object({ targetEmail: z.string().email().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const requesterEmail = await getSessionEmail(ctx.headers);
+      const targetEmail = await authorizeTargetEmail(
+        requesterEmail,
+        input?.targetEmail,
+      );
+      await clearOneTimeAutomationOverride(targetEmail);
+      return { success: true };
+    }),
 });
 
 async function authenticateUser(email: string, password: string) {

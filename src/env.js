@@ -11,9 +11,10 @@ export const env = createEnv({
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
-      CRON_SECRET: z.string().min(1),
-      JWT_SECRET: z.string().min(1),
-      APPROVED_EMAILS: z.string().min(1),
+    CRON_SECRET: z.string().min(1),
+    JWT_SECRET: z.string().min(1),
+    APPROVED_EMAILS: z.string().min(1),
+    HOUSEHOLD_MANAGER_EMAIL: z.string().email().optional(),
   },
 
   /**
@@ -35,6 +36,7 @@ export const env = createEnv({
     CRON_SECRET: process.env.CRON_SECRET,
     JWT_SECRET: process.env.JWT_SECRET,
     APPROVED_EMAILS: process.env.APPROVED_EMAILS,
+    HOUSEHOLD_MANAGER_EMAIL: process.env.HOUSEHOLD_MANAGER_EMAIL,
     // NEXT_PUBLIC_CLIENTVAR: process.env.NEXT_PUBLIC_CLIENTVAR,
   },
   /**

@@ -30,6 +30,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       onCount: result.onCount,
       offCount: result.offCount,
       temperatureStepCount: result.temperatureStepCount,
+      napOffCount: result.napOffCount,
       skippedCount: result.skippedCount,
       forcedAction: forcedAction ?? null,
     });
