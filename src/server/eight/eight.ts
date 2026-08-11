@@ -13,7 +13,7 @@ export async function fetchWithAuth<
 ): Promise<z.infer<T>> {
   const response = await fetch(url, {
     ...options,
-    signal: options.signal ?? AbortSignal.timeout(5_000),
+    signal: options.signal ?? AbortSignal.timeout(8_000),
     headers: {
       ...DEFAULT_API_HEADERS,
       ...options.headers,

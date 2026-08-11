@@ -68,10 +68,27 @@ export const napRouter = createTRPCRouter({
         result.status === "rejected" ? [targetEmails[index]!] : [],
       );
 
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          console.error(
+            `Failed to start nap for ${targetEmails[index]}:`,
+            result.reason,
+          );
+        }
+      });
+
       if (started.length === 0) {
+        const firstFailure = results.find(
+          (result): result is PromiseRejectedResult =>
+            result.status === "rejected",
+        );
+        const reason =
+          firstFailure?.reason instanceof Error
+            ? firstFailure.reason.message
+            : "Eight Sleep could not be reached";
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Eight Sleep did not start the nap. Please try again.",
+          message: `Eight Sleep did not start the nap: ${reason}.`,
         });
       }
       return { started, failed };

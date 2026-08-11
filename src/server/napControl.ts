@@ -11,7 +11,7 @@ import {
   type NapSession,
 } from "~/server/napSessions";
 
-const API_RETRY_ATTEMPTS = 2;
+const API_RETRY_ATTEMPTS = 1;
 type TransactionSql = postgres.TransactionSql;
 
 async function retryApiCall<T>(apiCall: () => Promise<T>): Promise<T> {
@@ -96,14 +96,20 @@ export async function startNapForTarget(input: {
 
     await retryApiCall(() => turnOnSide(token, token.eightUserId));
     try {
-      await retryApiCall(() =>
-        setHeatingLevel(
+      try {
+        await setHeatingLevel(
           token,
           token.eightUserId,
           session.temperature,
           input.durationMinutes * 60,
-        ),
-      );
+        );
+      } catch (timedError) {
+        console.warn(
+          `Timed temperature control failed for ${input.targetEmail}; using scheduler cutoff instead:`,
+          timedError,
+        );
+        await setHeatingLevel(token, token.eightUserId, session.temperature);
+      }
       await sql`
         INSERT INTO "8slp_nap_sessions" (
           id, started_by, target_email, temperature, started_at, ends_at
