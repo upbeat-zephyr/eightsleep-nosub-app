@@ -115,7 +115,9 @@ export async function startNapForTarget(input: {
           id, started_by, target_email, temperature, started_at, ends_at
         ) VALUES (
           ${session.id}, ${session.startedBy}, ${session.targetEmail},
-          ${session.temperature}, ${session.startedAt}, ${session.endsAt}
+          ${session.temperature},
+          ${session.startedAt.toISOString()}::timestamptz,
+          ${session.endsAt.toISOString()}::timestamptz
         )
         ON CONFLICT (target_email) DO UPDATE SET
           id = EXCLUDED.id,
