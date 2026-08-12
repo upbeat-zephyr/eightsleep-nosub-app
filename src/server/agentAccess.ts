@@ -27,8 +27,26 @@ export type AgentPrincipal = {
 let ensureTablesPromise: Promise<void> | null = null;
 
 export async function ensureAgentTables(): Promise<void> {
-  ensureTablesPromise ??= queryClient
-    .begin(async (sql) => {
+  ensureTablesPromise ??= (async () => {
+    const existing = await queryClient`
+      SELECT to_regclass('8slp_agent_tokens') AS tokens,
+             to_regclass('8slp_agent_grants') AS grants,
+             to_regclass('8slp_agent_requests') AS requests,
+             to_regclass('8slp_agent_audit') AS audit,
+             to_regclass('8slp_agent_rate_limits') AS rate_limits
+    `;
+    const row = existing[0];
+    if (
+      row?.tokens &&
+      row.grants &&
+      row.requests &&
+      row.audit &&
+      row.rate_limits
+    ) {
+      return;
+    }
+
+    await queryClient.begin(async (sql) => {
       await sql`SELECT pg_advisory_xact_lock(hashtext('8slp_agent_schema_v1'))`;
       await sql`
       CREATE TABLE IF NOT EXISTS "8slp_agent_tokens" (
@@ -88,12 +106,11 @@ export async function ensureAgentTables(): Promise<void> {
         PRIMARY KEY (token_id, window_start)
       )
     `;
-    })
-    .then(() => undefined)
-    .catch((error) => {
-      ensureTablesPromise = null;
-      throw error;
     });
+  })().catch((error) => {
+    ensureTablesPromise = null;
+    throw error;
+  });
   return ensureTablesPromise;
 }
 

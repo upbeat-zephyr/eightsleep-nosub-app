@@ -126,6 +126,24 @@ export function AgentAccessPanel() {
                     </button>
                   );
                 })}
+                {(dashboard.data?.members.length ?? 0) > 1 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTargets(
+                        dashboard.data?.members.map((member) => member.email) ??
+                          [],
+                      )
+                    }
+                    className={`col-span-2 min-h-11 rounded-xl border px-3 text-sm font-semibold ${
+                      targets.length === dashboard.data?.members.length
+                        ? "border-[#2e026d] bg-violet-50 text-[#2e026d]"
+                        : "border-slate-200 text-slate-600"
+                    }`}
+                  >
+                    Both sides
+                  </button>
+                )}
               </div>
             </fieldset>
             <div className="flex gap-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">
