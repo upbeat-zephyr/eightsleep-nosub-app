@@ -3,11 +3,7 @@ import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 import { db } from "~/server/db";
 import { userTemperatureProfile, users } from "~/server/db/schema";
 import { cookies } from "next/headers";
-import {
-  authenticate,
-  obtainFreshAccessToken,
-  AuthError,
-} from "~/server/eight/auth";
+import { authenticate, AuthError } from "~/server/eight/auth";
 import { eq, sql } from "drizzle-orm";
 import { type Token } from "~/server/eight/types";
 import { TRPCError } from "@trpc/server";
@@ -94,7 +90,7 @@ export const userRouter = createTRPCRouter({
       const email = decoded.email;
 
       const userList = await db
-        .select()
+        .select({ email: users.email })
         .from(users)
         .where(eq(users.email, email))
         .execute();
@@ -103,37 +99,6 @@ export const userRouter = createTRPCRouter({
         return { loginRequired: true };
       }
 
-      const user = userList[0];
-
-      // check if token is expired, and if so, refresh it
-      if (user.eightTokenExpiresAt < new Date()) {
-        console.log("Token expired, refreshing for user", user.email);
-        try {
-          const {
-            eightAccessToken,
-            eightRefreshToken,
-            eightExpiresAtPosix: expiresAt,
-          } = await obtainFreshAccessToken(
-            user.eightRefreshToken,
-            user.eightUserId,
-          );
-
-          await db
-            .update(users)
-            .set({
-              eightAccessToken,
-              eightRefreshToken,
-              eightTokenExpiresAt: new Date(expiresAt),
-            })
-            .where(eq(users.email, email))
-            .execute();
-
-          return { loginRequired: false };
-        } catch (error) {
-          console.error("Token renewal failed:", error);
-          return { loginRequired: true };
-        }
-      }
       return { loginRequired: false };
     } catch (error) {
       console.error("Error in checkLoginState:", error);
@@ -181,8 +146,9 @@ export const userRouter = createTRPCRouter({
         cookies().set("8slpAutht", token, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
-          sameSite: "strict",
+          sameSite: "lax",
           maxAge: threeMonthsInSeconds,
+          expires: new Date(Date.now() + threeMonthsInSeconds * 1000),
           path: "/",
         });
         console.log("Saving token to cookie.");
