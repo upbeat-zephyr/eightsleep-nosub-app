@@ -139,16 +139,16 @@ export const userRouter = createTRPCRouter({
         }
 
         const token = jwt.sign({ email: accountEmail }, jwtSecret, {
-          expiresIn: "90d",
+          expiresIn: "180d",
         });
-        const threeMonthsInSeconds = 90 * 24 * 60 * 60; // 90 days
+        const sixMonthsInSeconds = 180 * 24 * 60 * 60;
 
         cookies().set("8slpAutht", token, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
           sameSite: "lax",
-          maxAge: threeMonthsInSeconds,
-          expires: new Date(Date.now() + threeMonthsInSeconds * 1000),
+          maxAge: sixMonthsInSeconds,
+          expires: new Date(Date.now() + sixMonthsInSeconds * 1000),
           path: "/",
         });
         console.log("Saving token to cookie.");
