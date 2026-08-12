@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bed, Clock3, Minus, Plus, Power, Users } from "lucide-react";
+import { Bed, Clock3, Minus, Plus, Power } from "lucide-react";
 import { apiR } from "~/trpc/react";
 import { Button } from "~/components/ui/button";
 
@@ -112,61 +112,50 @@ export function NapPanel({ members }: { members: HouseholdMember[] }) {
         );
       })}
 
+      <div
+        className={`grid gap-1 rounded-xl border border-white/10 bg-white/10 p-1 backdrop-blur ${
+          members.length > 1 ? "grid-cols-3" : "grid-cols-1"
+        }`}
+      >
+        {members.map((member) => (
+          <button
+            key={member.email}
+            type="button"
+            onClick={() => setTarget(member.email)}
+            className={`min-h-10 whitespace-nowrap rounded-lg px-1.5 text-xs font-semibold transition sm:px-3 sm:text-sm ${
+              target === member.email
+                ? "bg-white text-[#2e026d] shadow"
+                : "text-white/70 hover:text-white"
+            }`}
+          >
+            {member.label}
+          </button>
+        ))}
+        {members.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setTarget("both")}
+            className={`min-h-10 whitespace-nowrap rounded-lg px-1.5 text-xs font-semibold transition sm:px-3 sm:text-sm ${
+              target === "both"
+                ? "bg-white text-[#2e026d] shadow"
+                : "text-white/70 hover:text-white"
+            }`}
+          >
+            Both sides
+          </button>
+        )}
+      </div>
+
       <section className="overflow-hidden rounded-3xl bg-white text-slate-950 shadow-2xl shadow-black/20 ring-1 ring-white/20">
         <div className="bg-gradient-to-br from-violet-100 via-white to-fuchsia-50 p-5 sm:p-7">
-          <div className="mb-6 flex items-start gap-3">
+          <div className="mb-6 flex items-center gap-3">
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#2e026d] text-white shadow-lg shadow-violet-950/20">
               <Bed className="h-6 w-6" aria-hidden="true" />
             </span>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Start a nap</h1>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                Warm or cool the bed now, then switch it off automatically.
-              </p>
-            </div>
+            <h1 className="text-2xl font-bold tracking-tight">Start a nap</h1>
           </div>
 
           <div className="grid gap-6">
-            <fieldset>
-              <legend className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
-                <Users className="h-4 w-4" aria-hidden="true" />
-                Side
-              </legend>
-              <div
-                className={`grid gap-2 rounded-xl bg-slate-100 p-1 ${
-                  members.length > 1 ? "grid-cols-2" : "grid-cols-1"
-                }`}
-              >
-                {members.map((member) => (
-                  <button
-                    key={member.email}
-                    type="button"
-                    onClick={() => setTarget(member.email)}
-                    className={`min-h-11 rounded-lg px-3 text-sm font-semibold transition ${
-                      target === member.email
-                        ? "bg-white text-[#2e026d] shadow-sm"
-                        : "text-slate-600 hover:text-slate-950"
-                    }`}
-                  >
-                    {member.label}
-                  </button>
-                ))}
-                {members.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setTarget("both")}
-                    className={`col-span-2 min-h-11 rounded-lg px-3 text-sm font-semibold transition ${
-                      target === "both"
-                        ? "bg-white text-[#2e026d] shadow-sm"
-                        : "text-slate-600 hover:text-slate-950"
-                    }`}
-                  >
-                    Both sides
-                  </button>
-                )}
-              </div>
-            </fieldset>
-
             <fieldset>
               <legend className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
                 <Clock3 className="h-4 w-4" aria-hidden="true" />
@@ -233,9 +222,6 @@ export function NapPanel({ members }: { members: HouseholdMember[] }) {
                   <div className="text-4xl font-bold tabular-nums">
                     {temperature > 0 ? "+" : ""}
                     {temperature}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    -10 cool · +10 warm
                   </div>
                 </div>
                 <button
