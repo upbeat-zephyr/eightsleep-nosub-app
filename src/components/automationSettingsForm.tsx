@@ -82,8 +82,10 @@ function createTemperatureStepInput(
 
 export function AutomationSettingsForm({
   targetEmail,
+  mode = "automation",
 }: {
   targetEmail: string;
+  mode?: "automation" | "once";
 }) {
   const [settings, setSettings] =
     useState<AutomationSettings>(DEFAULT_SETTINGS);
@@ -340,331 +342,381 @@ export function AutomationSettingsForm({
     >
       <h1 className="mb-5 flex items-center gap-3 text-2xl font-bold tracking-tight">
         <span className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-100 text-[#2e026d]">
-          <CalendarClock className="h-5 w-5" aria-hidden="true" />
+          {mode === "automation" ? (
+            <CalendarClock className="h-5 w-5" aria-hidden="true" />
+          ) : (
+            <Clock3 className="h-5 w-5" aria-hidden="true" />
+          )}
         </span>
-        Automation
+        {mode === "automation" ? "Automation" : "Once"}
       </h1>
       <div className="grid gap-4">
-        <label className="flex min-w-0 flex-col gap-1 text-sm">
-          Turn Off Time
-          <input
-            type="time"
-            value={settings.offTime}
-            onChange={(event) => updateField("offTime", event.target.value)}
-            className="w-full min-w-0 rounded border px-3 py-2"
-            required
-          />
-        </label>
+        {mode === "automation" && (
+          <>
+            <div className="grid min-w-0 grid-cols-2 gap-3">
+              <label className="flex min-w-0 flex-col gap-1 text-sm font-medium">
+                Turn On
+                <input
+                  type="time"
+                  value={settings.onTime}
+                  onChange={(event) =>
+                    updateField("onTime", event.target.value)
+                  }
+                  className="h-11 w-full min-w-0 rounded-xl border border-slate-300 px-3"
+                  required
+                />
+              </label>
+              <label className="flex min-w-0 flex-col gap-1 text-sm font-medium">
+                Turn Off
+                <input
+                  type="time"
+                  value={settings.offTime}
+                  onChange={(event) =>
+                    updateField("offTime", event.target.value)
+                  }
+                  className="h-11 w-full min-w-0 rounded-xl border border-slate-300 px-3"
+                  required
+                />
+              </label>
+            </div>
 
-        <label className="flex min-w-0 flex-col gap-1 text-sm">
-          Turn On Time
-          <input
-            type="time"
-            value={settings.onTime}
-            onChange={(event) => updateField("onTime", event.target.value)}
-            className="w-full min-w-0 rounded border px-3 py-2"
-            required
-          />
-        </label>
-
-        <label className="flex min-w-0 flex-col gap-1 text-sm">
-          Timezone
-          <TimezoneSelect
-            value={settings.timezone}
-            onChange={(tz: ITimezoneOption) =>
-              updateField("timezone", tz.value)
-            }
-            timezones={{
-              ...allTimezones,
-              "America/New_York": "America/New York",
-              "America/Los_Angeles": "America/Los Angeles",
-            }}
-            className="min-w-0 max-w-full text-sm"
-          />
-        </label>
-
-        <div className="flex flex-col gap-1 text-sm">
-          Initial Temperature Level (-10 to 10)
-          <div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className={iconButtonClass}
-              onClick={() => adjustTemperature(-1)}
-              aria-label="Decrease initial temperature"
-            >
-              <Minus className="h-4 w-4" />
-            </Button>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={temperatureInput}
-              onChange={(event) => updateTemperatureInput(event.target.value)}
-              onBlur={() => {
-                if (temperatureInput === "" || temperatureInput === "-") {
-                  setTemperatureInput(String(settings.initialTemperature));
-                }
+            <TimezoneSelect
+              value={settings.timezone}
+              onChange={(tz: ITimezoneOption) =>
+                updateField("timezone", tz.value)
+              }
+              timezones={{
+                ...allTimezones,
+                "America/New_York": "America/New York",
+                "America/Los_Angeles": "America/Los Angeles",
               }}
-              className="min-w-0 flex-1 rounded border px-3 py-2 text-center"
-              required
+              aria-label="Timezone"
+              className="min-w-0 max-w-full text-sm"
+              styles={{
+                control: (base) => ({
+                  ...base,
+                  minHeight: "auto",
+                  border: 0,
+                  boxShadow: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                }),
+                valueContainer: (base) => ({ ...base, padding: 0 }),
+                singleValue: (base) => ({
+                  ...base,
+                  color: "#6d28d9",
+                  textDecoration: "underline",
+                  textUnderlineOffset: "3px",
+                }),
+                indicatorsContainer: (base) => ({
+                  ...base,
+                  transform: "scale(.8)",
+                }),
+              }}
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className={iconButtonClass}
-              onClick={() => adjustTemperature(1)}
-              aria-label="Increase initial temperature"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Moon className="h-4 w-4 text-violet-700" aria-hidden="true" />
-              Night Temperature Changes
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className={lightButtonClass}
-              onClick={addTemperatureStep}
-            >
-              <Plus className="mr-1 h-4 w-4" />
-              Add
-            </Button>
-          </div>
-          {temperatureStepInputs.length > 0 && (
-            <div className="grid gap-2">
-              {temperatureStepInputs.map((step) => (
-                <div
-                  key={step.id}
-                  className="grid min-w-0 grid-cols-[2.25rem_minmax(3.5rem,1fr)_2.25rem_2.25rem] items-center gap-1.5 sm:grid-cols-[minmax(6.5rem,1fr)_2.25rem_minmax(3.5rem,4rem)_2.25rem_2.25rem] sm:gap-2"
+            <div className="flex flex-col gap-1 text-sm">
+              Initial Temperature Level (-10 to 10)
+              <div className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className={iconButtonClass}
+                  onClick={() => adjustTemperature(-1)}
+                  aria-label="Decrease initial temperature"
                 >
-                  <input
-                    type="time"
-                    value={step.time}
-                    onChange={(event) =>
-                      updateTemperatureStepTime(step.id, event.target.value)
+                  <Minus className="h-4 w-4" />
+                </Button>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={temperatureInput}
+                  onChange={(event) =>
+                    updateTemperatureInput(event.target.value)
+                  }
+                  onBlur={() => {
+                    if (temperatureInput === "" || temperatureInput === "-") {
+                      setTemperatureInput(String(settings.initialTemperature));
                     }
-                    className="col-span-4 h-9 min-w-0 rounded border px-2 text-sm sm:col-span-1"
-                    aria-label="Temperature change time"
-                    required
+                  }}
+                  className="min-w-0 flex-1 rounded border px-3 py-2 text-center"
+                  required
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className={iconButtonClass}
+                  onClick={() => adjustTemperature(1)}
+                  aria-label="Increase initial temperature"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <Moon
+                    className="h-4 w-4 text-violet-700"
+                    aria-hidden="true"
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className={compactIconButtonClass}
-                    onClick={() => adjustTemperatureStep(step.id, -1)}
-                    aria-label="Decrease scheduled temperature"
-                  >
-                    <Minus className="h-4 w-4" />
-                  </Button>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={step.temperatureInput}
-                    onChange={(event) =>
-                      updateTemperatureStepTemperature(
-                        step.id,
-                        event.target.value,
-                      )
-                    }
-                    onBlur={() => {
-                      if (
-                        step.temperatureInput === "" ||
-                        step.temperatureInput === "-"
-                      ) {
-                        updateTemperatureStepTemperature(
-                          step.id,
-                          String(settings.initialTemperature),
-                        );
-                      }
-                    }}
-                    className="h-9 min-w-0 rounded border px-2 text-center text-sm"
-                    aria-label="Temperature change level"
-                    required
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className={compactIconButtonClass}
-                    onClick={() => adjustTemperatureStep(step.id, 1)}
-                    aria-label="Increase scheduled temperature"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className={compactIconButtonClass}
-                    onClick={() => removeTemperatureStep(step.id)}
-                    aria-label="Remove temperature change"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+                  Night Temperature Changes
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <Clock3 className="h-4 w-4 text-violet-700" aria-hidden="true" />
-            One-Time Times
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex min-w-0 flex-col gap-1 text-sm">
-              Next Turn On
-              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
-                <input
-                  type="time"
-                  value={oneTimeOnInput}
-                  onChange={(event) => {
-                    setOneTimeOnInput(event.target.value);
-                    setSaveMessage(null);
-                  }}
-                  className="min-w-0 flex-1 rounded border px-3 py-2"
-                />
                 <Button
                   type="button"
                   variant="outline"
+                  size="sm"
                   className={lightButtonClass}
-                  onClick={() =>
-                    setOneTimeOnTime.mutate({
-                      onTime: oneTimeOnInput,
-                      targetEmail,
-                    })
-                  }
-                  disabled={setOneTimeOnTime.isPending}
+                  onClick={addTemperatureStep}
                 >
-                  Use once
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add
                 </Button>
               </div>
-            </label>
-            <label className="flex min-w-0 flex-col gap-1 text-sm">
-              Next Turn Off
-              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
-                <input
-                  type="time"
-                  value={oneTimeOffInput}
-                  onChange={(event) => {
-                    setOneTimeOffInput(event.target.value);
-                    setSaveMessage(null);
-                  }}
-                  className="min-w-0 flex-1 rounded border px-3 py-2"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={lightButtonClass}
-                  onClick={() =>
-                    setOneTimeOffTime.mutate({
-                      offTime: oneTimeOffInput,
-                      targetEmail,
-                    })
-                  }
-                  disabled={setOneTimeOffTime.isPending}
-                >
-                  Use once
-                </Button>
-              </div>
-            </label>
-          </div>
-
-          {settings.oneTimeOverride && (
-            <div className="mt-3 grid gap-2 text-sm">
-              {settings.oneTimeOverride.onTime &&
-                settings.oneTimeOverride.onLocalDate && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span>
-                      Next turn-on:{" "}
-                      <strong>{settings.oneTimeOverride.onTime}</strong> on{" "}
-                      {settings.oneTimeOverride.onLocalDate}.
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => clearOneTimeOnTime.mutate({ targetEmail })}
-                      disabled={clearOneTimeOnTime.isPending}
+              {temperatureStepInputs.length > 0 && (
+                <div className="grid gap-2">
+                  {temperatureStepInputs.map((step) => (
+                    <div
+                      key={step.id}
+                      className="grid min-w-0 grid-cols-[2.25rem_minmax(3.5rem,1fr)_2.25rem_2.25rem] items-center gap-1.5 sm:grid-cols-[minmax(6.5rem,1fr)_2.25rem_minmax(3.5rem,4rem)_2.25rem_2.25rem] sm:gap-2"
                     >
-                      <X className="mr-1 h-4 w-4" />
-                      Clear
-                    </Button>
-                  </div>
-                )}
-              {settings.oneTimeOverride.offTime &&
-                settings.oneTimeOverride.offLocalDate && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span>
-                      Next turn-off:{" "}
-                      <strong>{settings.oneTimeOverride.offTime}</strong> on{" "}
-                      {settings.oneTimeOverride.offLocalDate}.
-                    </span>
+                      <input
+                        type="time"
+                        value={step.time}
+                        onChange={(event) =>
+                          updateTemperatureStepTime(step.id, event.target.value)
+                        }
+                        className="col-span-4 h-9 min-w-0 rounded border px-2 text-sm sm:col-span-1"
+                        aria-label="Temperature change time"
+                        required
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className={compactIconButtonClass}
+                        onClick={() => adjustTemperatureStep(step.id, -1)}
+                        aria-label="Decrease scheduled temperature"
+                      >
+                        <Minus className="h-4 w-4" />
+                      </Button>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={step.temperatureInput}
+                        onChange={(event) =>
+                          updateTemperatureStepTemperature(
+                            step.id,
+                            event.target.value,
+                          )
+                        }
+                        onBlur={() => {
+                          if (
+                            step.temperatureInput === "" ||
+                            step.temperatureInput === "-"
+                          ) {
+                            updateTemperatureStepTemperature(
+                              step.id,
+                              String(settings.initialTemperature),
+                            );
+                          }
+                        }}
+                        className="h-9 min-w-0 rounded border px-2 text-center text-sm"
+                        aria-label="Temperature change level"
+                        required
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className={compactIconButtonClass}
+                        onClick={() => adjustTemperatureStep(step.id, 1)}
+                        aria-label="Increase scheduled temperature"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className={compactIconButtonClass}
+                        onClick={() => removeTemperatureStep(step.id)}
+                        aria-label="Remove temperature change"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {mode === "once" && (
+          <>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                <Clock3
+                  className="h-4 w-4 text-violet-700"
+                  aria-hidden="true"
+                />
+                One-Time Times
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex min-w-0 flex-col gap-1 text-sm">
+                  Next Turn On
+                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
+                    <input
+                      type="time"
+                      value={oneTimeOnInput}
+                      onChange={(event) => {
+                        setOneTimeOnInput(event.target.value);
+                        setSaveMessage(null);
+                      }}
+                      className="min-w-0 flex-1 rounded border px-3 py-2"
+                    />
                     <Button
                       type="button"
-                      variant="ghost"
-                      size="sm"
+                      variant="outline"
+                      className={lightButtonClass}
                       onClick={() =>
-                        clearOneTimeOffTime.mutate({ targetEmail })
+                        setOneTimeOnTime.mutate({
+                          onTime: oneTimeOnInput,
+                          targetEmail,
+                        })
                       }
-                      disabled={clearOneTimeOffTime.isPending}
+                      disabled={setOneTimeOnTime.isPending}
                     >
-                      <X className="mr-1 h-4 w-4" />
-                      Clear
+                      Use once
                     </Button>
                   </div>
-                )}
+                </label>
+                <label className="flex min-w-0 flex-col gap-1 text-sm">
+                  Next Turn Off
+                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
+                    <input
+                      type="time"
+                      value={oneTimeOffInput}
+                      onChange={(event) => {
+                        setOneTimeOffInput(event.target.value);
+                        setSaveMessage(null);
+                      }}
+                      className="min-w-0 flex-1 rounded border px-3 py-2"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={lightButtonClass}
+                      onClick={() =>
+                        setOneTimeOffTime.mutate({
+                          offTime: oneTimeOffInput,
+                          targetEmail,
+                        })
+                      }
+                      disabled={setOneTimeOffTime.isPending}
+                    >
+                      Use once
+                    </Button>
+                  </div>
+                </label>
+              </div>
+
+              {settings.oneTimeOverride && (
+                <div className="mt-3 grid gap-2 text-sm">
+                  {settings.oneTimeOverride.onTime &&
+                    settings.oneTimeOverride.onLocalDate && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>
+                          Next turn-on:{" "}
+                          <strong>{settings.oneTimeOverride.onTime}</strong> on{" "}
+                          {settings.oneTimeOverride.onLocalDate}.
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            clearOneTimeOnTime.mutate({ targetEmail })
+                          }
+                          disabled={clearOneTimeOnTime.isPending}
+                        >
+                          <X className="mr-1 h-4 w-4" />
+                          Clear
+                        </Button>
+                      </div>
+                    )}
+                  {settings.oneTimeOverride.offTime &&
+                    settings.oneTimeOverride.offLocalDate && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>
+                          Next turn-off:{" "}
+                          <strong>{settings.oneTimeOverride.offTime}</strong> on{" "}
+                          {settings.oneTimeOverride.offLocalDate}.
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            clearOneTimeOffTime.mutate({ targetEmail })
+                          }
+                          disabled={clearOneTimeOffTime.isPending}
+                        >
+                          <X className="mr-1 h-4 w-4" />
+                          Clear
+                        </Button>
+                      </div>
+                    )}
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
-            <TimerReset
-              className="h-4 w-4 text-violet-700"
-              aria-hidden="true"
-            />
-            Delay Next Turn Off
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {[30, 60, 120, 180].map((minutes) => (
-              <Button
-                key={minutes}
-                type="button"
-                variant="outline"
-                className={lightButtonClass}
-                onClick={() =>
-                  setOneTimeDelay.mutate({
-                    delayMinutes: minutes,
-                    targetEmail,
-                  })
-                }
-                disabled={setOneTimeDelay.isPending}
-              >
-                {formatDelay(minutes)}
-              </Button>
-            ))}
-          </div>
-        </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                <TimerReset
+                  className="h-4 w-4 text-violet-700"
+                  aria-hidden="true"
+                />
+                Delay Next Turn Off
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {[30, 60, 120, 180].map((minutes) => (
+                  <Button
+                    key={minutes}
+                    type="button"
+                    variant="outline"
+                    className={lightButtonClass}
+                    onClick={() =>
+                      setOneTimeDelay.mutate({
+                        delayMinutes: minutes,
+                        targetEmail,
+                      })
+                    }
+                    disabled={setOneTimeDelay.isPending}
+                  >
+                    {formatDelay(minutes)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-3">
-        <Button type="submit" disabled={updateSettings.isPending}>
-          {updateSettings.isPending ? "Saving..." : "Save settings"}
-        </Button>
-        {saveMessage && <p className="text-sm">{saveMessage}</p>}
-      </div>
+      {mode === "automation" ? (
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <Button type="submit" disabled={updateSettings.isPending}>
+            {updateSettings.isPending ? "Saving..." : "Save settings"}
+          </Button>
+          {saveMessage && <p className="text-sm">{saveMessage}</p>}
+        </div>
+      ) : (
+        saveMessage && <p className="mt-4 text-sm">{saveMessage}</p>
+      )}
     </form>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarClock, Moon, Sparkles } from "lucide-react";
+import { CalendarClock, Clock3, Moon, Sparkles } from "lucide-react";
 import { EightLoginDialog } from "~/components/eightLogin";
 import { LogoutButton } from "~/components/logout";
 import { AutomationSettingsForm } from "~/components/automationSettingsForm";
@@ -14,7 +14,9 @@ export default function ClientHome({
   initialLoginState: boolean;
 }) {
   const [isLoggedIn, setIsLoggedIn] = useState(initialLoginState);
-  const [activeView, setActiveView] = useState<"nap" | "automation">("nap");
+  const [activeView, setActiveView] = useState<"nap" | "automation" | "once">(
+    "nap",
+  );
   const [automationTarget, setAutomationTarget] = useState("");
   const household = apiR.nap.dashboard.useQuery(undefined, {
     enabled: isLoggedIn,
@@ -45,7 +47,7 @@ export default function ClientHome({
           </div>
         </nav>
         <div className="container min-w-0 px-3 pb-28 pt-4 sm:px-4 sm:pt-7 md:pb-10">
-          <div className="mx-auto mb-5 hidden max-w-xl grid-cols-2 gap-1 rounded-2xl border border-white/10 bg-white/10 p-1 backdrop-blur md:grid">
+          <div className="mx-auto mb-5 hidden max-w-xl grid-cols-3 gap-1 rounded-2xl border border-white/10 bg-white/10 p-1 backdrop-blur md:grid">
             <AppNavButton
               active={activeView === "nap"}
               label="Nap"
@@ -57,6 +59,12 @@ export default function ClientHome({
               label="Automation"
               icon={<CalendarClock className="h-4 w-4" />}
               onClick={() => setActiveView("automation")}
+            />
+            <AppNavButton
+              active={activeView === "once"}
+              label="Once"
+              icon={<Clock3 className="h-4 w-4" />}
+              onClick={() => setActiveView("once")}
             />
           </div>
 
@@ -104,6 +112,7 @@ export default function ClientHome({
                 <AutomationSettingsForm
                   key={automationTarget}
                   targetEmail={automationTarget}
+                  mode={activeView}
                 />
               )}
             </div>
@@ -114,7 +123,7 @@ export default function ClientHome({
           aria-label="Features"
           className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#160b35]/95 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl md:hidden"
         >
-          <div className="mx-auto grid max-w-md grid-cols-2 gap-2">
+          <div className="mx-auto grid max-w-md grid-cols-3 gap-1">
             <AppNavButton
               active={activeView === "nap"}
               label="Nap"
@@ -126,6 +135,12 @@ export default function ClientHome({
               label="Automation"
               icon={<CalendarClock className="h-5 w-5" />}
               onClick={() => setActiveView("automation")}
+            />
+            <AppNavButton
+              active={activeView === "once"}
+              label="Once"
+              icon={<Clock3 className="h-5 w-5" />}
+              onClick={() => setActiveView("once")}
             />
           </div>
         </nav>
