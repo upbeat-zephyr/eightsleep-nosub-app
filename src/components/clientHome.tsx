@@ -180,7 +180,7 @@ function AppNavButton({
       type="button"
       aria-current={active ? "page" : undefined}
       onClick={onClick}
-      className={`flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition ${
+      className={`flex min-h-12 items-center justify-center gap-1.5 rounded-xl px-2 text-sm font-semibold transition [&>svg]:shrink-0 ${
         active
           ? "bg-white text-[#2e026d] shadow-lg"
           : "text-white/65 hover:bg-white/5 hover:text-white"
