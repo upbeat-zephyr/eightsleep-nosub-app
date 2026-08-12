@@ -45,7 +45,7 @@ export default function ClientHome({
       <main className="min-h-screen bg-[radial-gradient(circle_at_top_right,_#5b21b6_0,_#2e026d_32%,_#15162c_76%)] text-white">
         <nav
           aria-label="Application"
-          className="border-b border-white/10 bg-[#160b35]/70 backdrop-blur-xl"
+          className="relative z-50 border-b border-white/10 bg-[#160b35]/95 backdrop-blur-xl"
         >
           <div className="container flex h-14 items-center justify-between px-4">
             <span className="flex items-center gap-2 text-base font-bold tracking-tight">
@@ -112,7 +112,7 @@ export default function ClientHome({
             </div>
           </div>
         </nav>
-        <div className="container min-w-0 px-3 pb-28 pt-4 sm:px-4 sm:pt-7 md:pb-10">
+        <div className="container relative z-0 min-w-0 px-3 pb-28 pt-4 sm:px-4 sm:pt-7 md:pb-10">
           <div className="mx-auto mb-5 hidden max-w-xl grid-cols-4 gap-1 rounded-2xl border border-white/10 bg-white/10 p-1 backdrop-blur md:grid">
             <AppNavButton
               active={activeView === "nap"}
