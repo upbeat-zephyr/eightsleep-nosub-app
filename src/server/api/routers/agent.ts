@@ -3,8 +3,8 @@ import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 import {
   AGENT_SCOPES,
   createAgentToken,
+  deleteAgentToken,
   listAgentTokens,
-  revokeAgentToken,
 } from "~/server/agentAccess";
 import {
   authorizeTargetEmail,
@@ -26,7 +26,7 @@ export const agentRouter = createTRPCRouter({
       z.object({
         name: z.string().trim().min(1).max(80),
         targetEmails: z.array(z.string().email()).min(1).max(2),
-        expiresInDays: z.number().int().min(1).max(180).default(180),
+        expiresInDays: z.number().int().min(1).max(365).nullable(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -36,9 +36,9 @@ export const agentRouter = createTRPCRouter({
           authorizeTargetEmail(email, target),
         ),
       );
-      const expiresAt = new Date(
-        Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000,
-      );
+      const expiresAt = input.expiresInDays
+        ? new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000)
+        : null;
       return createAgentToken({
         name: input.name,
         createdBy: email,
@@ -49,11 +49,11 @@ export const agentRouter = createTRPCRouter({
         })),
       });
     }),
-  revoke: publicProcedure
+  delete: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const email = await getSessionEmail(ctx.headers);
-      await revokeAgentToken(input.id, email);
+      await deleteAgentToken(input.id, email);
       return { success: true };
     }),
 });

@@ -22,7 +22,8 @@ profiles, or alarm creation.
   manager, or otherwise the first `APPROVED_EMAILS` entry, can manage connected
   household accounts. Other users can manage only themselves.
 - `src/server/agentAccess.ts`: hashed personal agent tokens, exact target/scope
-  grants, idempotency records, rate enforcement, revocation, and audit events.
+  grants, optional expiration, idempotency records, rate enforcement, deletion,
+  and audit events.
 - `src/app/api/agent/v1/route.ts`: versioned bearer-authenticated command API.
 - `mcp/eightsleep-agent/server.mjs`: canonical dependency-free stdio MCP adapter
   that calls the command API. Harness configuration only points to this file.
@@ -82,18 +83,22 @@ credential values belong in this record.
 
 ### Agent Access
 
-1. Open the app's **Agent** destination.
-2. Name the assistant, select allowed household sides, and create a key.
+1. Open **Agent** from the desktop header or the mobile three-dot menu.
+2. Name the assistant, select allowed household sides and an expiration policy,
+   then create a key.
 3. Copy the `8slp_pat_v1...` key; plaintext is shown once and never stored.
 4. Set `EIGHTSLEEP_AGENT_API_URL` to the deployed `/api/agent/v1` endpoint and
    `EIGHTSLEEP_AGENT_API_TOKEN` to that key in the agent runtime environment.
 5. Run `node mcp/eightsleep-agent/server.mjs doctor`, then configure the chosen
    MCP client using `mcp/eightsleep-agent/README.md`.
 
-Agent keys receive the full command scope only for explicitly selected targets,
-expire after 180 days, and can be revoked without affecting browser sessions or
-Eight Sleep credentials. Every write requires an `Idempotency-Key`; MCP creates
-one automatically and accepts a stable caller key for calendar-trigger retries.
+Agent keys receive the full command scope only for explicitly selected targets.
+They can be non-expiring or expire after 30, 90, 180, or 365 days. Deleting a key
+immediately invalidates it, removes its grants and supporting request/rate state,
+and does not affect browser sessions or Eight Sleep credentials. The sanitized
+deletion audit event does not retain the deleted token ID. Every write requires
+an `Idempotency-Key`; MCP creates one automatically and accepts a stable caller
+key for calendar-trigger retries.
 Requests still in progress after two minutes become `indeterminate` and are not
 automatically executed again. The agent API is not an arbitrary HTTP/provider
 proxy.

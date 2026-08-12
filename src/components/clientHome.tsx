@@ -5,6 +5,7 @@ import {
   Bot,
   CalendarClock,
   Clock3,
+  MoreVertical,
   Moon,
   Plane,
   Sparkles,
@@ -27,6 +28,7 @@ export default function ClientHome({
     "nap" | "automation" | "once" | "away" | "agent"
   >("nap");
   const [automationTarget, setAutomationTarget] = useState("");
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const household = apiR.nap.dashboard.useQuery(undefined, {
     enabled: isLoggedIn,
     refetchInterval: activeView === "nap" ? 60_000 : false,
@@ -54,11 +56,64 @@ export default function ClientHome({
                 Eightsleep <span className="text-fuchsia-300">Nosub</span>
               </span>
             </span>
-            <LogoutButton onLogoutSuccess={() => setIsLoggedIn(false)} />
+            <div className="hidden items-center gap-2 md:flex">
+              <button
+                type="button"
+                aria-current={activeView === "agent" ? "page" : undefined}
+                onClick={() => setActiveView("agent")}
+                className={`flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition ${
+                  activeView === "agent"
+                    ? "border-white bg-white text-[#2e026d]"
+                    : "border-white/20 bg-white/10 text-white hover:bg-white/20"
+                }`}
+              >
+                <Bot className="h-4 w-4" />
+                Agent
+              </button>
+              <LogoutButton onLogoutSuccess={() => setIsLoggedIn(false)} />
+            </div>
+            <div className="relative md:hidden">
+              <button
+                type="button"
+                aria-label="Open account menu"
+                aria-expanded={accountMenuOpen}
+                onClick={() => setAccountMenuOpen((open) => !open)}
+                className="grid h-10 w-10 place-items-center rounded-xl border border-white/20 bg-white/10 text-white"
+              >
+                <MoreVertical className="h-5 w-5" />
+              </button>
+              {accountMenuOpen && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Close account menu"
+                    className="fixed inset-0 z-40 cursor-default"
+                    onClick={() => setAccountMenuOpen(false)}
+                  />
+                  <div className="absolute right-0 top-12 z-50 w-48 rounded-2xl border border-slate-200 bg-white p-2 text-slate-950 shadow-2xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveView("agent");
+                        setAccountMenuOpen(false);
+                      }}
+                      className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                    >
+                      <Bot className="h-4 w-4 text-violet-700" />
+                      Agent access
+                    </button>
+                    <LogoutButton
+                      menuItem
+                      onLogoutSuccess={() => setIsLoggedIn(false)}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </nav>
         <div className="container min-w-0 px-3 pb-28 pt-4 sm:px-4 sm:pt-7 md:pb-10">
-          <div className="mx-auto mb-5 hidden max-w-xl grid-cols-5 gap-1 rounded-2xl border border-white/10 bg-white/10 p-1 backdrop-blur md:grid">
+          <div className="mx-auto mb-5 hidden max-w-xl grid-cols-4 gap-1 rounded-2xl border border-white/10 bg-white/10 p-1 backdrop-blur md:grid">
             <AppNavButton
               active={activeView === "nap"}
               label="Nap"
@@ -82,12 +137,6 @@ export default function ClientHome({
               label="Away"
               icon={<Plane className="h-4 w-4" />}
               onClick={() => setActiveView("away")}
-            />
-            <AppNavButton
-              active={activeView === "agent"}
-              label="Agent"
-              icon={<Bot className="h-4 w-4" />}
-              onClick={() => setActiveView("agent")}
             />
           </div>
 
@@ -154,19 +203,12 @@ export default function ClientHome({
           aria-label="Features"
           className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#160b35]/95 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl md:hidden"
         >
-          <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
+          <div className="mx-auto grid max-w-md grid-cols-4 gap-1">
             <AppNavButton
               active={activeView === "nap"}
               label="Nap"
               icon={<Sparkles className="h-5 w-5" />}
               onClick={() => setActiveView("nap")}
-              iconOnly
-            />
-            <AppNavButton
-              active={activeView === "agent"}
-              label="Agent"
-              icon={<Bot className="h-5 w-5" />}
-              onClick={() => setActiveView("agent")}
               iconOnly
             />
             <AppNavButton

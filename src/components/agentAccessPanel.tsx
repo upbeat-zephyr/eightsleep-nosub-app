@@ -11,6 +11,11 @@ export function AgentAccessPanel() {
   const [targets, setTargets] = useState<string[]>([]);
   const [newToken, setNewToken] = useState<string | null>(null);
   const [copied, setCopied] = useState<"key" | "setup" | null>(null);
+  const [expiresInDays, setExpiresInDays] = useState<number | null>(null);
+  const [deleteToken, setDeleteToken] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   useEffect(() => {
     if (targets.length === 0 && dashboard.data?.members[0]) {
@@ -24,8 +29,11 @@ export function AgentAccessPanel() {
       void dashboard.refetch();
     },
   });
-  const revoke = apiR.agent.revoke.useMutation({
-    onSuccess: () => void dashboard.refetch(),
+  const deleteKey = apiR.agent.delete.useMutation({
+    onSuccess: async () => {
+      setDeleteToken(null);
+      await dashboard.refetch();
+    },
   });
   const apiUrl =
     typeof window === "undefined"
@@ -81,10 +89,10 @@ export function AgentAccessPanel() {
                 token authorizes it.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <Button
                 type="button"
-                variant="outline"
+                className="border border-violet-200 bg-white text-violet-800 hover:bg-violet-50"
                 onClick={async () => {
                   await navigator.clipboard.writeText(newToken);
                   setCopied("key");
@@ -95,10 +103,11 @@ export function AgentAccessPanel() {
                 ) : (
                   <Copy className="mr-2 h-4 w-4" />
                 )}
-                {copied === "key" ? "Copied" : "Copy key"}
+                {copied === "key" ? "Key copied" : "Copy key"}
               </Button>
               <Button
                 type="button"
+                className="bg-[#2e026d] text-white hover:bg-[#3d0788]"
                 onClick={async () => {
                   await navigator.clipboard.writeText(envSetup);
                   setCopied("setup");
@@ -109,7 +118,7 @@ export function AgentAccessPanel() {
                 ) : (
                   <Copy className="mr-2 h-4 w-4" />
                 )}
-                {copied === "setup" ? "Copied" : "Copy setup"}
+                {copied === "setup" ? "Setup copied" : "Copy setup"}
               </Button>
             </div>
             <button
@@ -181,14 +190,33 @@ export function AgentAccessPanel() {
                 )}
               </div>
             </fieldset>
+            <label className="text-sm font-semibold">
+              Key expiration
+              <select
+                value={expiresInDays ?? "never"}
+                onChange={(event) =>
+                  setExpiresInDays(
+                    event.target.value === "never"
+                      ? null
+                      : Number(event.target.value),
+                  )
+                }
+                className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-slate-900 focus:border-violet-600 focus:outline-none focus:ring-2 focus:ring-violet-200"
+              >
+                <option value="never">Never expires</option>
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+                <option value="180">180 days</option>
+                <option value="365">1 year</option>
+              </select>
+            </label>
             <div className="flex gap-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">
               <ShieldCheck className="h-5 w-5 shrink-0" />
-              Full controls for selected sides. Expires in 180 days and can be
-              revoked anytime.
+              Full controls for selected sides. You can delete this key anytime.
             </div>
             <Button
               type="button"
-              className="w-full"
+              className="w-full bg-[#2e026d] text-white hover:bg-[#3d0788]"
               disabled={
                 create.isPending || !name.trim() || targets.length === 0
               }
@@ -196,7 +224,7 @@ export function AgentAccessPanel() {
                 create.mutate({
                   name,
                   targetEmails: targets,
-                  expiresInDays: 180,
+                  expiresInDays,
                 })
               }
             >
@@ -211,37 +239,81 @@ export function AgentAccessPanel() {
       </section>
 
       {(dashboard.data?.tokens.length ?? 0) > 0 && (
-        <section className="rounded-2xl border border-white/10 bg-white/10 p-4 text-white backdrop-blur">
-          <h2 className="mb-3 font-semibold">Agent keys</h2>
+        <section className="rounded-3xl bg-white p-5 text-slate-950 shadow-xl shadow-black/15">
+          <h2 className="mb-3 font-bold">Agent keys</h2>
           <div className="grid gap-2">
             {dashboard.data?.tokens.map((token) => (
               <div
                 key={token.id}
-                className="flex items-center gap-3 rounded-xl bg-black/10 p-3"
+                className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
               >
-                <KeyRound className="h-4 w-4 shrink-0 text-fuchsia-300" />
+                <KeyRound className="h-4 w-4 shrink-0 text-violet-700" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold">{token.name}</p>
-                  <p className="text-xs text-white/55">
-                    {token.revokedAt
-                      ? "Revoked"
-                      : `Expires ${new Date(token.expiresAt).toLocaleDateString()}`}
+                  <p className="text-xs text-slate-500">
+                    {token.expiresAt
+                      ? `Expires ${new Date(token.expiresAt).toLocaleDateString()}`
+                      : "Never expires"}
                   </p>
                 </div>
-                {!token.revokedAt && (
-                  <button
-                    type="button"
-                    aria-label={`Revoke ${token.name}`}
-                    onClick={() => revoke.mutate({ id: token.id })}
-                    className="grid h-10 w-10 place-items-center rounded-lg text-white/65 hover:bg-white/10 hover:text-white"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  aria-label={`Delete ${token.name}`}
+                  onClick={() =>
+                    setDeleteToken({ id: token.id, name: token.name })
+                  }
+                  className="grid h-10 w-10 place-items-center rounded-lg text-rose-700 transition hover:bg-rose-100 hover:text-rose-900"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
             ))}
           </div>
         </section>
+      )}
+      {deleteToken && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-key-title"
+          className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm"
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-slate-950 shadow-2xl">
+            <div className="mb-4 grid h-11 w-11 place-items-center rounded-2xl bg-rose-100 text-rose-700">
+              <Trash2 className="h-5 w-5" />
+            </div>
+            <h2 id="delete-key-title" className="text-xl font-bold">
+              Delete agent key?
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              “{deleteToken.name}” will immediately stop working and disappear
+              from this list. This cannot be undone.
+            </p>
+            {deleteKey.error && (
+              <p className="mt-3 text-sm text-rose-700">
+                {deleteKey.error.message}
+              </p>
+            )}
+            <div className="mt-6 grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                className="border border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
+                disabled={deleteKey.isPending}
+                onClick={() => setDeleteToken(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="bg-rose-700 text-white hover:bg-rose-800"
+                disabled={deleteKey.isPending}
+                onClick={() => deleteKey.mutate({ id: deleteToken.id })}
+              >
+                {deleteKey.isPending ? "Deleting…" : "Delete key"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

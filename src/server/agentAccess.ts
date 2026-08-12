@@ -33,7 +33,11 @@ export async function ensureAgentTables(): Promise<void> {
              to_regclass('8slp_agent_grants') AS grants,
              to_regclass('8slp_agent_requests') AS requests,
              to_regclass('8slp_agent_audit') AS audit,
-             to_regclass('8slp_agent_rate_limits') AS rate_limits
+             to_regclass('8slp_agent_rate_limits') AS rate_limits,
+             (SELECT is_nullable = 'YES'
+                FROM information_schema.columns
+               WHERE table_name = '8slp_agent_tokens'
+                 AND column_name = 'expires_at') AS expires_nullable
     `;
     const row = existing[0];
     if (
@@ -41,7 +45,8 @@ export async function ensureAgentTables(): Promise<void> {
       row.grants &&
       row.requests &&
       row.audit &&
-      row.rate_limits
+      row.rate_limits &&
+      row.expires_nullable
     ) {
       return;
     }
@@ -55,7 +60,7 @@ export async function ensureAgentTables(): Promise<void> {
         name varchar(80) NOT NULL,
         created_by varchar(255) NOT NULL REFERENCES "8slp_users"(email) ON DELETE RESTRICT,
         created_at timestamptz DEFAULT now() NOT NULL,
-        expires_at timestamptz NOT NULL,
+        expires_at timestamptz,
         revoked_at timestamptz,
         last_used_at timestamptz
       )
@@ -106,6 +111,10 @@ export async function ensureAgentTables(): Promise<void> {
         PRIMARY KEY (token_id, window_start)
       )
     `;
+      await sql`
+        ALTER TABLE "8slp_agent_tokens"
+        ALTER COLUMN expires_at DROP NOT NULL
+      `;
     });
   })().catch((error) => {
     ensureTablesPromise = null;
@@ -121,7 +130,7 @@ function hashToken(token: string): string {
 export async function createAgentToken(input: {
   name: string;
   createdBy: string;
-  expiresAt: Date;
+  expiresAt: Date | null;
   grants: Array<{ targetEmail: string; scopes: AgentScope[] }>;
 }): Promise<{ id: string; token: string }> {
   await ensureAgentTables();
@@ -130,7 +139,7 @@ export async function createAgentToken(input: {
   await queryClient.begin(async (sql) => {
     await sql`
       INSERT INTO "8slp_agent_tokens" (id, token_hash, name, created_by, expires_at)
-      VALUES (${id}, ${hashToken(token)}, ${input.name}, ${input.createdBy}, ${input.expiresAt.toISOString()}::timestamptz)
+      VALUES (${id}, ${hashToken(token)}, ${input.name}, ${input.createdBy}, ${input.expiresAt?.toISOString() ?? null}::timestamptz)
     `;
     for (const grant of input.grants) {
       for (const scope of grant.scopes) {
@@ -150,6 +159,7 @@ export async function createAgentToken(input: {
     metadata: {
       name: input.name,
       targets: input.grants.map((grant) => grant.targetEmail),
+      expiresAt: input.expiresAt?.toISOString() ?? null,
     },
   });
   return { id, token };
@@ -158,18 +168,17 @@ export async function createAgentToken(input: {
 export async function listAgentTokens(createdBy: string) {
   await ensureAgentTables();
   const rows = await queryClient`
-    SELECT id, name, created_at, expires_at, revoked_at, last_used_at
+    SELECT id, name, created_at, expires_at, last_used_at
     FROM "8slp_agent_tokens"
-    WHERE created_by = ${createdBy}
+    WHERE created_by = ${createdBy} AND revoked_at IS NULL
     ORDER BY created_at DESC
   `;
   return rows.map((row) => ({
     id: String(row.id),
     name: String(row.name),
     createdAt: new Date(String(row.created_at)).toISOString(),
-    expiresAt: new Date(String(row.expires_at)).toISOString(),
-    revokedAt: row.revoked_at
-      ? new Date(String(row.revoked_at)).toISOString()
+    expiresAt: row.expires_at
+      ? new Date(String(row.expires_at)).toISOString()
       : null,
     lastUsedAt: row.last_used_at
       ? new Date(String(row.last_used_at)).toISOString()
@@ -177,22 +186,27 @@ export async function listAgentTokens(createdBy: string) {
   }));
 }
 
-export async function revokeAgentToken(
+export async function deleteAgentToken(
   id: string,
   createdBy: string,
 ): Promise<void> {
   await ensureAgentTables();
-  const rows = await queryClient`
-    UPDATE "8slp_agent_tokens"
-    SET revoked_at = COALESCE(revoked_at, now())
-    WHERE id = ${id} AND created_by = ${createdBy}
-    RETURNING id
-  `;
-  if (rows.length === 0) throw new AgentApiError(404, "token_not_found");
+  const deleted = await queryClient.begin(async (sql) => {
+    const rows = await sql`
+      SELECT id FROM "8slp_agent_tokens"
+      WHERE id = ${id} AND created_by = ${createdBy}
+      FOR UPDATE
+    `;
+    if (rows.length === 0) return false;
+    await sql`DELETE FROM "8slp_agent_requests" WHERE token_id = ${id}`;
+    await sql`DELETE FROM "8slp_agent_rate_limits" WHERE token_id = ${id}`;
+    await sql`DELETE FROM "8slp_agent_tokens" WHERE id = ${id}`;
+    return true;
+  });
+  if (!deleted) throw new AgentApiError(404, "token_not_found");
   await writeAudit({
-    tokenId: id,
     actorEmail: createdBy,
-    operation: "token.revoke",
+    operation: "token.delete",
     outcome: "succeeded",
     httpStatus: 204,
   });
@@ -213,7 +227,8 @@ export async function authenticateAgent(
   const rows = await queryClient`
     SELECT id, token_hash, name, created_by
     FROM "8slp_agent_tokens"
-    WHERE id = ${id} AND revoked_at IS NULL AND expires_at > now()
+    WHERE id = ${id} AND revoked_at IS NULL
+      AND (expires_at IS NULL OR expires_at > now())
     LIMIT 1
   `;
   const row = rows[0];
