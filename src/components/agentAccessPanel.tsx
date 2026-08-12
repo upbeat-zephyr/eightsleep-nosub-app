@@ -10,7 +10,7 @@ export function AgentAccessPanel() {
   const [name, setName] = useState("Personal assistant");
   const [targets, setTargets] = useState<string[]>([]);
   const [newToken, setNewToken] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"key" | "setup" | null>(null);
 
   useEffect(() => {
     if (targets.length === 0 && dashboard.data?.members[0]) {
@@ -27,6 +27,13 @@ export function AgentAccessPanel() {
   const revoke = apiR.agent.revoke.useMutation({
     onSuccess: () => void dashboard.refetch(),
   });
+  const apiUrl =
+    typeof window === "undefined"
+      ? "/api/agent/v1"
+      : `${window.location.origin}/api/agent/v1`;
+  const envSetup = newToken
+    ? `EIGHTSLEEP_AGENT_API_URL="${apiUrl}"\nEIGHTSLEEP_AGENT_API_TOKEN="${newToken}"`
+    : "";
 
   if (dashboard.isLoading) {
     return (
@@ -62,26 +69,54 @@ export function AgentAccessPanel() {
                 {newToken}
               </code>
             </div>
-            <Button
-              type="button"
-              className="w-full"
-              onClick={async () => {
-                await navigator.clipboard.writeText(newToken);
-                setCopied(true);
-              }}
-            >
-              {copied ? (
-                <Check className="mr-2 h-4 w-4" />
-              ) : (
-                <Copy className="mr-2 h-4 w-4" />
-              )}
-              {copied ? "Copied" : "Copy key"}
-            </Button>
+            <div>
+              <p className="mb-2 text-sm font-semibold">
+                Add to your agent’s `.env` file
+              </p>
+              <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+                {envSetup}
+              </pre>
+              <p className="mt-2 text-xs text-slate-500">
+                The URL tells the MCP adapter which deployed app to call. The
+                token authorizes it.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(newToken);
+                  setCopied("key");
+                }}
+              >
+                {copied === "key" ? (
+                  <Check className="mr-2 h-4 w-4" />
+                ) : (
+                  <Copy className="mr-2 h-4 w-4" />
+                )}
+                {copied === "key" ? "Copied" : "Copy key"}
+              </Button>
+              <Button
+                type="button"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(envSetup);
+                  setCopied("setup");
+                }}
+              >
+                {copied === "setup" ? (
+                  <Check className="mr-2 h-4 w-4" />
+                ) : (
+                  <Copy className="mr-2 h-4 w-4" />
+                )}
+                {copied === "setup" ? "Copied" : "Copy setup"}
+              </Button>
+            </div>
             <button
               type="button"
               onClick={() => {
                 setNewToken(null);
-                setCopied(false);
+                setCopied(null);
               }}
               className="text-sm font-semibold text-violet-700"
             >
