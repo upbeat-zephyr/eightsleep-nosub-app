@@ -32,7 +32,7 @@ async function retryApiCall<T>(apiCall: () => Promise<T>): Promise<T> {
   throw lastError;
 }
 
-async function getFreshToken(targetEmail: string): Promise<Token> {
+export async function getFreshToken(targetEmail: string): Promise<Token> {
   const user = await db.query.users.findFirst({
     where: eq(users.email, targetEmail),
   });
@@ -64,6 +64,55 @@ async function getFreshToken(targetEmail: string): Promise<Token> {
     })
     .where(eq(users.email, targetEmail));
   return refreshed;
+}
+
+export async function setDirectPower(
+  targetEmail: string,
+  state: "on" | "off",
+): Promise<void> {
+  const token = await getFreshToken(targetEmail);
+  await withTargetLock(targetEmail, async (sql) => {
+    if (state === "on") {
+      await ensureAwayPeriodsTable();
+      const activeAway = await sql`
+        SELECT 1 FROM "8slp_away_periods"
+        WHERE target_email = ${targetEmail} AND starts_at <= now() AND ends_at > now()
+        LIMIT 1
+      `;
+      if (activeAway.length > 0)
+        throw new Error("End Away mode before turning the Pod on.");
+      await retryApiCall(() => turnOnSide(token, token.eightUserId));
+    } else {
+      await retryApiCall(() => turnOffSide(token, token.eightUserId));
+    }
+  });
+}
+
+export async function setDirectTemperature(
+  targetEmail: string,
+  temperature: number,
+  durationMinutes?: number,
+): Promise<void> {
+  const token = await getFreshToken(targetEmail);
+  await withTargetLock(targetEmail, async (sql) => {
+    await ensureAwayPeriodsTable();
+    const activeAway = await sql`
+      SELECT 1 FROM "8slp_away_periods"
+      WHERE target_email = ${targetEmail} AND starts_at <= now() AND ends_at > now()
+      LIMIT 1
+    `;
+    if (activeAway.length > 0)
+      throw new Error("End Away mode before changing temperature.");
+    await retryApiCall(() => turnOnSide(token, token.eightUserId));
+    await retryApiCall(() =>
+      setHeatingLevel(
+        token,
+        token.eightUserId,
+        temperature * 10,
+        (durationMinutes ?? 0) * 60,
+      ),
+    );
+  });
 }
 
 export async function withTargetLock<T>(

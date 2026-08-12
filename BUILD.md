@@ -21,6 +21,11 @@ profiles, or alarm creation.
 - `src/server/household.ts`: self/partner authorization. The configured household
   manager, or otherwise the first `APPROVED_EMAILS` entry, can manage connected
   household accounts. Other users can manage only themselves.
+- `src/server/agentAccess.ts`: hashed personal agent tokens, exact target/scope
+  grants, idempotency records, rate enforcement, revocation, and audit events.
+- `src/app/api/agent/v1/route.ts`: versioned bearer-authenticated command API.
+- `mcp/eightsleep-agent/server.mjs`: canonical dependency-free stdio MCP adapter
+  that calls the command API. Harness configuration only points to this file.
 
 ## Automation Precedence
 
@@ -49,6 +54,11 @@ The app creates these small support tables on first use:
 - `8slp_nap_sessions`: one active nap per target account.
 - `8slp_away_periods`: one active Away period per target account.
 - `8slp_automation_overrides`: one-time on/off overrides.
+- `8slp_agent_tokens` and `8slp_agent_grants`: revocable agent identities and
+  exact per-target capabilities. Only SHA-256 token hashes are stored.
+- `8slp_agent_requests`: idempotency reservation and sanitized replay responses.
+- `8slp_agent_audit`: sanitized management and command outcomes.
+- `8slp_agent_rate_limits`: atomic fixed-minute request counters per token.
 
 Runtime database credentials therefore require schema creation permission. No
 credential values belong in this record.
@@ -70,6 +80,33 @@ credential values belong in this record.
   deadlines. Away is implemented entirely at the app scheduler layer because
   the repository's private provider Away endpoint has unverified semantics.
 
+### Agent Access
+
+1. Open the app's **Agent** destination.
+2. Name the assistant, select allowed household sides, and create a key.
+3. Copy the `8slp_pat_v1...` key; plaintext is shown once and never stored.
+4. Set `EIGHTSLEEP_AGENT_API_URL` to the deployed `/api/agent/v1` endpoint and
+   `EIGHTSLEEP_AGENT_API_TOKEN` to that key in the agent runtime environment.
+5. Run `node mcp/eightsleep-agent/server.mjs doctor`, then configure the chosen
+   MCP client using `mcp/eightsleep-agent/README.md`.
+
+Agent keys receive the full command scope only for explicitly selected targets,
+expire after 180 days, and can be revoked without affecting browser sessions or
+Eight Sleep credentials. Every write requires an `Idempotency-Key`; MCP creates
+one automatically and accepts a stable caller key for calendar-trigger retries.
+Requests still in progress after two minutes become `indeterminate` and are not
+automatically executed again. The agent API is not an arbitrary HTTP/provider
+proxy.
+
+Agent command operations are `state.get`, `schedule.update`, `once.set`,
+`once.clear`, `nap.start`, `nap.stop`, `away.schedule`, `away.clear`,
+`power.set`, and `temperature.set`. Direct on/temperature actions reject active
+Away rather than silently overriding it.
+
+The API applies an atomic 30-request-per-minute token limit. Unexpected provider
+errors use stable codes without upstream payloads or credentials. Audit records
+exclude bearer tokens, cookies, provider credentials, and idempotency keys.
+
 ## Verification
 
 Before deployment of structural changes, run:
@@ -78,6 +115,7 @@ Before deployment of structural changes, run:
 pnpm exec tsc --noEmit
 SKIP_ENV_VALIDATION=1 pnpm lint
 SKIP_ENV_VALIDATION=1 pnpm build
+pnpm test:mcp
 ```
 
 Production deployment is triggered by pushing `main`; verify the Vercel commit

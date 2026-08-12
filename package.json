@@ -11,6 +11,9 @@
     "db:studio": "drizzle-kit studio",
     "dev": "next dev --turbo",
     "lint": "next lint",
+    "agent:mcp": "node mcp/eightsleep-agent/server.mjs serve",
+    "agent:mcp:doctor": "node mcp/eightsleep-agent/server.mjs doctor",
+    "test:mcp": "node --test mcp/eightsleep-agent/test/*.test.mjs",
     "start": "next start"
   },
   "dependencies": {
