@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, Check, Plane, Power } from "lucide-react";
+import { Check, Plane, Power } from "lucide-react";
 import { apiR } from "~/trpc/react";
 import { Button } from "~/components/ui/button";
 
@@ -23,7 +23,7 @@ export function AwayPanel({ members }: { members: HouseholdMember[] }) {
     refetchInterval: 60_000,
   });
   const [target, setTarget] = useState("");
-  const [days, setDays] = useState<number | "custom">(3);
+  const [awayFrom, setAwayFrom] = useState(() => dateInputValue(new Date()));
   const [returnDate, setReturnDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() + 3);
@@ -40,8 +40,10 @@ export function AwayPanel({ members }: { members: HouseholdMember[] }) {
     onSuccess: (result) => {
       setMessage(
         result.failed.length
-          ? "Away mode started on one side; the other side could not be reached."
-          : "Away mode is active. Automation is paused.",
+          ? "Away was set for one side; the other side could not be updated."
+          : startsToday
+            ? "Away mode is active. Automation is paused."
+            : "Away mode is scheduled.",
       );
       void awayStatus.refetch();
     },
@@ -57,17 +59,19 @@ export function AwayPanel({ members }: { members: HouseholdMember[] }) {
 
   const targetEmails =
     target === "both" ? members.map((member) => member.email) : [target];
-  const getEndsAt = () => {
-    if (days === "custom") {
-      const date = new Date(`${returnDate}T12:00:00`);
-      return date;
-    }
-    const date = new Date();
-    date.setDate(date.getDate() + days);
-    return date;
-  };
-  const customReturnIsValid =
-    days !== "custom" || Number.isFinite(getEndsAt().getTime());
+  const startsAt = new Date(`${awayFrom}T00:00:00`);
+  const endsAt = new Date(`${returnDate}T12:00:00`);
+  const datesAreValid =
+    Number.isFinite(startsAt.getTime()) &&
+    Number.isFinite(endsAt.getTime()) &&
+    endsAt > startsAt;
+  const startsToday = awayFrom === dateInputValue(new Date());
+  const returnLabel = Number.isFinite(endsAt.getTime())
+    ? endsAt.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })
+    : "the return date";
 
   return (
     <div className="mx-auto grid w-full max-w-xl gap-4">
@@ -120,7 +124,10 @@ export function AwayPanel({ members }: { members: HouseholdMember[] }) {
             <div className="min-w-0 flex-1">
               <p className="font-semibold">{member?.label ?? "Side"} is away</p>
               <p className="text-sm text-white/65">
-                Until {new Date(period.endsAt).toLocaleDateString()}
+                {period.active ? "Until" : "Scheduled"}{" "}
+                {period.active
+                  ? new Date(period.endsAt).toLocaleDateString()
+                  : `${new Date(period.startsAt).toLocaleDateString()} – ${new Date(period.endsAt).toLocaleDateString()}`}
               </p>
             </div>
             <Button
@@ -153,49 +160,34 @@ export function AwayPanel({ members }: { members: HouseholdMember[] }) {
         </div>
 
         <div className="grid gap-5">
-          <fieldset>
-            <legend className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <CalendarDays className="h-4 w-4" aria-hidden="true" />
-              Return
-            </legend>
-            <div className="grid grid-cols-4 gap-2">
-              {[1, 3, 7].map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setDays(option)}
-                  className={`h-11 rounded-xl border px-1 text-sm font-semibold ${
-                    days === option
-                      ? "border-[#2e026d] bg-[#2e026d] text-white"
-                      : "border-slate-200 bg-white text-slate-700"
-                  }`}
-                >
-                  {option}d
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setDays("custom")}
-                className={`h-11 rounded-xl border px-1 text-sm font-semibold ${
-                  days === "custom"
-                    ? "border-[#2e026d] bg-[#2e026d] text-white"
-                    : "border-slate-200 bg-white text-slate-700"
-                }`}
-              >
-                Date
-              </button>
+          <div>
+            <div className="grid min-w-0 grid-cols-2 gap-3">
+              <label className="flex min-w-0 flex-col gap-1 text-sm font-medium">
+                Away from
+                <input
+                  type="date"
+                  value={awayFrom}
+                  min={dateInputValue(new Date())}
+                  onChange={(event) => setAwayFrom(event.target.value)}
+                  className="h-11 w-full min-w-0 rounded-xl border border-slate-300 px-2 sm:px-3"
+                />
+              </label>
+              <label className="flex min-w-0 flex-col gap-1 text-sm font-medium">
+                Return home
+                <input
+                  type="date"
+                  value={returnDate}
+                  min={awayFrom || dateInputValue(new Date())}
+                  onChange={(event) => setReturnDate(event.target.value)}
+                  className="h-11 w-full min-w-0 rounded-xl border border-slate-300 px-2 sm:px-3"
+                />
+              </label>
             </div>
-            {days === "custom" && (
-              <input
-                type="date"
-                value={returnDate}
-                min={dateInputValue(new Date())}
-                onChange={(event) => setReturnDate(event.target.value)}
-                className="mt-3 h-11 w-full rounded-xl border border-slate-300 px-3"
-                aria-label="Return date"
-              />
-            )}
-          </fieldset>
+            <p className="mt-2 text-xs text-slate-500">
+              Resumes {returnLabel}; the Pod turns on at its next scheduled
+              time.
+            </p>
+          </div>
 
           <Button
             type="button"
@@ -203,14 +195,15 @@ export function AwayPanel({ members }: { members: HouseholdMember[] }) {
             className="h-12 w-full rounded-xl bg-[#2e026d] text-base text-white hover:bg-[#3b0785]"
             disabled={
               startAway.isPending ||
-              !customReturnIsValid ||
+              !datesAreValid ||
               targetEmails.some((email) => !email)
             }
             onClick={() => {
               setMessage(null);
               startAway.mutate({
                 targetEmails,
-                endsAt: getEndsAt().toISOString(),
+                startsAt: startsAt.toISOString(),
+                endsAt: endsAt.toISOString(),
               });
             }}
           >
@@ -219,7 +212,7 @@ export function AwayPanel({ members }: { members: HouseholdMember[] }) {
             ) : (
               <>
                 <Power className="mr-2 h-5 w-5" aria-hidden="true" />
-                Turn off and pause
+                {startsToday ? "Turn off and pause" : "Schedule away"}
               </>
             )}
           </Button>

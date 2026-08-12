@@ -13,8 +13,8 @@ import {
 } from "./automationOverrides";
 import { getTemperatureScheduleSteps } from "./temperatureSchedule";
 import { processExpiredNaps } from "./napControl";
-import { getActiveAwayPeriods } from "./awayPeriods";
-import { withTargetLock } from "./napControl";
+import { getActiveAwayPeriods, getDueAwayPeriods } from "./awayPeriods";
+import { activateScheduledAwayForTarget, withTargetLock } from "./napControl";
 
 export type OnOffConfig = {
   off_time: string;
@@ -185,11 +185,21 @@ export async function runOnOffJob(options?: {
   let offCount = 0;
   let temperatureStepCount = 0;
   let skippedCount = 0;
-  const napResult = await processExpiredNaps(options?.now ?? new Date());
+  const jobNow = options?.now ?? new Date();
+  const napResult = await processExpiredNaps(jobNow);
+  const dueAwayPeriods = await getDueAwayPeriods(jobNow);
+  for (const period of dueAwayPeriods) {
+    try {
+      await activateScheduledAwayForTarget(period.targetEmail, jobNow);
+    } catch (error) {
+      console.error(
+        `Failed to activate scheduled Away for ${period.targetEmail}:`,
+        error,
+      );
+    }
+  }
   const awayTargetEmails = new Set(
-    (await getActiveAwayPeriods(options?.now ?? new Date())).map(
-      (period) => period.targetEmail,
-    ),
+    (await getActiveAwayPeriods(jobNow)).map((period) => period.targetEmail),
   );
 
   for (const entry of allUsers) {

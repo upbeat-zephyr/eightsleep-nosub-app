@@ -152,32 +152,80 @@ export async function startNapForTarget(input: {
 export async function startAwayForTarget(input: {
   startedBy: string;
   targetEmail: string;
+  startsAt: Date;
   endsAt: Date;
 }): Promise<void> {
   const token = await getFreshToken(input.targetEmail);
   await withTargetLock(input.targetEmail, async (sql) => {
     await ensureAwayPeriodsTable();
     await ensureNapSessionsTable();
-    await retryApiCall(() => turnOffSide(token, token.eightUserId));
-    await sql`
-      DELETE FROM "8slp_nap_sessions"
-      WHERE target_email = ${input.targetEmail}
-    `;
+    const activateNow = input.startsAt <= new Date();
+    if (activateNow) {
+      await retryApiCall(() => turnOffSide(token, token.eightUserId));
+      await sql`
+        DELETE FROM "8slp_nap_sessions"
+        WHERE target_email = ${input.targetEmail}
+      `;
+    }
     await sql`
       INSERT INTO "8slp_away_periods" (
-        target_email, started_by, starts_at, ends_at, updated_at
+        target_email, started_by, starts_at, ends_at, activated_at, updated_at
       ) VALUES (
         ${input.targetEmail},
         ${input.startedBy},
-        now(),
+        ${input.startsAt.toISOString()}::timestamptz,
         ${input.endsAt.toISOString()}::timestamptz,
+        ${activateNow ? new Date().toISOString() : null}::timestamptz,
         now()
       )
       ON CONFLICT (target_email) DO UPDATE SET
         started_by = EXCLUDED.started_by,
         starts_at = EXCLUDED.starts_at,
         ends_at = EXCLUDED.ends_at,
+        activated_at = EXCLUDED.activated_at,
         updated_at = now()
+    `;
+  });
+}
+
+export async function activateScheduledAwayForTarget(
+  targetEmail: string,
+  now = new Date(),
+): Promise<boolean> {
+  const token = await getFreshToken(targetEmail);
+  return withTargetLock(targetEmail, async (sql) => {
+    await ensureAwayPeriodsTable();
+    await ensureNapSessionsTable();
+    const due = await sql`
+      SELECT 1 FROM "8slp_away_periods"
+      WHERE target_email = ${targetEmail}
+        AND starts_at <= ${now.toISOString()}::timestamptz
+        AND ends_at > ${now.toISOString()}::timestamptz
+        AND activated_at IS NULL
+      LIMIT 1
+    `;
+    if (due.length === 0) return false;
+
+    await retryApiCall(() => turnOffSide(token, token.eightUserId));
+    await sql`
+      DELETE FROM "8slp_nap_sessions"
+      WHERE target_email = ${targetEmail}
+    `;
+    await sql`
+      UPDATE "8slp_away_periods"
+      SET activated_at = ${now.toISOString()}::timestamptz, updated_at = now()
+      WHERE target_email = ${targetEmail}
+    `;
+    return true;
+  });
+}
+
+export async function clearAwayForTarget(targetEmail: string): Promise<void> {
+  await withTargetLock(targetEmail, async (sql) => {
+    await ensureAwayPeriodsTable();
+    await sql`
+      DELETE FROM "8slp_away_periods"
+      WHERE target_email = ${targetEmail}
     `;
   });
 }

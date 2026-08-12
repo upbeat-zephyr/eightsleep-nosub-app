@@ -14,9 +14,14 @@ export async function GET(request: NextRequest): Promise<Response> {
     actionParam === "on" || actionParam === "off" ? actionParam : undefined;
 
   const testTimeParam = request.nextUrl.searchParams.get("testTime");
-  const now = testTimeParam
-    ? new Date(Number(testTimeParam) * 1000)
-    : new Date();
+  if (testTimeParam && process.env.NODE_ENV === "production") {
+    return new Response("testTime is disabled in production", { status: 400 });
+  }
+  const testTimeSeconds = testTimeParam ? Number(testTimeParam) : null;
+  if (testTimeSeconds !== null && !Number.isFinite(testTimeSeconds)) {
+    return new Response("Invalid testTime", { status: 400 });
+  }
+  const now = testTimeParam ? new Date(testTimeSeconds! * 1000) : new Date();
 
   try {
     const result = await runOnOffJob({

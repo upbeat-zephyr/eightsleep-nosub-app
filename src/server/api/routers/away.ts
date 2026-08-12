@@ -1,13 +1,13 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
-import { clearAwayPeriod, getActiveAwayPeriods } from "~/server/awayPeriods";
+import { getAwayPeriods } from "~/server/awayPeriods";
 import {
   authorizeTargetEmail,
   getHouseholdMembers,
   getSessionEmail,
 } from "~/server/household";
-import { startAwayForTarget } from "~/server/napControl";
+import { clearAwayForTarget, startAwayForTarget } from "~/server/napControl";
 
 const targetEmailsSchema = z.array(z.string().email()).min(1).max(2);
 
@@ -16,11 +16,13 @@ export const awayRouter = createTRPCRouter({
     const requesterEmail = await getSessionEmail(ctx.headers);
     const members = await getHouseholdMembers(requesterEmail);
     const visibleEmails = new Set(members.map((member) => member.email));
-    const periods = (await getActiveAwayPeriods())
+    const periods = (await getAwayPeriods())
       .filter((period) => visibleEmails.has(period.targetEmail))
       .map((period) => ({
         targetEmail: period.targetEmail,
+        startsAt: period.startsAt.toISOString(),
         endsAt: period.endsAt.toISOString(),
+        active: period.startsAt <= new Date(),
       }));
     return { periods };
   }),
@@ -28,6 +30,7 @@ export const awayRouter = createTRPCRouter({
     .input(
       z.object({
         targetEmails: targetEmailsSchema,
+        startsAt: z.string().datetime(),
         endsAt: z.string().datetime(),
       }),
     )
@@ -38,14 +41,21 @@ export const awayRouter = createTRPCRouter({
           authorizeTargetEmail(requesterEmail, email),
         ),
       );
+      const startsAt = new Date(input.startsAt);
       const endsAt = new Date(input.endsAt);
-      if (endsAt.getTime() <= Date.now() + 15 * 60 * 1000) {
+      if (startsAt.getTime() < Date.now() - 26 * 60 * 60 * 1000) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Choose a return time at least 15 minutes from now.",
+          message: "The Away start date cannot be in the past.",
         });
       }
-      if (endsAt.getTime() > Date.now() + 365 * 24 * 60 * 60 * 1000) {
+      if (endsAt.getTime() <= startsAt.getTime() + 15 * 60 * 1000) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Return home must be after Away starts.",
+        });
+      }
+      if (endsAt.getTime() > startsAt.getTime() + 365 * 24 * 60 * 60 * 1000) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Away mode can be scheduled for up to one year.",
@@ -57,6 +67,7 @@ export const awayRouter = createTRPCRouter({
           await startAwayForTarget({
             targetEmail,
             startedBy: requesterEmail,
+            startsAt,
             endsAt,
           });
         }),
@@ -81,7 +92,12 @@ export const awayRouter = createTRPCRouter({
           message: "Away mode could not switch the selected side off.",
         });
       }
-      return { started, failed, endsAt: endsAt.toISOString() };
+      return {
+        started,
+        failed,
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+      };
     }),
   clear: publicProcedure
     .input(z.object({ targetEmails: targetEmailsSchema }))
@@ -92,7 +108,7 @@ export const awayRouter = createTRPCRouter({
           authorizeTargetEmail(requesterEmail, email),
         ),
       );
-      await Promise.all(targetEmails.map(clearAwayPeriod));
+      await Promise.all(targetEmails.map(clearAwayForTarget));
       return { success: true };
     }),
 });

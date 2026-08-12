@@ -33,12 +33,14 @@ The scheduler applies this order per target account:
 4. Otherwise evaluate one-time overrides, recurring on/off times, and overnight
    temperature steps.
 
-Starting Away acquires a per-account database advisory lock, turns the selected
-side off, removes any active nap, and persists Away before releasing the lock.
-Nap start and scheduler provider actions acquire the same lock and re-check Away
-before turning a side on. Away does not mutate recurring settings. Expired Away
-rows are deleted when Away state or the scheduler is read, after which normal
-automation is eligible again.
+Starting Away today acquires a per-account database advisory lock, turns the
+selected side off, removes any active nap, and persists Away before releasing
+the lock. A future Away range is persisted as pending; the scheduler acquires
+the same lock, turns the side off once on or after its start date, removes an
+active nap, and marks the range activated. Nap start and scheduler provider
+actions re-check Away under that lock before turning a side on. Away does not
+mutate recurring settings. Expired Away rows are deleted when Away state or the
+scheduler is read, after which normal automation is eligible again.
 
 ## Persistence
 
@@ -53,10 +55,13 @@ credential values belong in this record.
 
 ## Operation
 
-- Away can target self, partner, or both for 1, 3, or 7 days, or a custom return
-  date. Custom dates resume at local browser noon on the selected date.
-- Day presets use local calendar-day arithmetic, so daylight-saving changes do
-  not shift the intended local return clock time.
+- Away can target self, partner, or both with an `Away from` and `Return home`
+  date. The start is local midnight and the return is local noon, both converted
+  by the browser to UTC before persistence.
+- Future Away ranges can be scheduled in advance. Activation accuracy depends
+  on scheduler cadence.
+- The synthetic `testTime` cron parameter is disabled in production because Away
+  cleanup and activation are state-changing operations.
 - Clearing Away immediately makes the account eligible for the next scheduler
   run; it does not immediately turn the Pod on.
 - Expiration accuracy depends on calls to `/api/temperatureCron`. The bundled
