@@ -407,7 +407,12 @@ export const userRouter = createTRPCRouter({
         timezone,
       });
 
-      return { success: true };
+      return {
+        success: true,
+        onTime: input.onTime,
+        onLocalDate: formatLocalDate(targetDate),
+        timezone,
+      };
     }),
   setOneTimeOffTime: publicProcedure
     .input(
@@ -436,7 +441,12 @@ export const userRouter = createTRPCRouter({
         timezone,
       });
 
-      return { success: true };
+      return {
+        success: true,
+        offTime: input.offTime,
+        offLocalDate: formatLocalDate(targetDate),
+        timezone,
+      };
     }),
   clearOneTimeOnTime: publicProcedure
     .input(z.object({ targetEmail: z.string().email().optional() }).optional())

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiR } from "~/trpc/react";
 import { Button } from "~/components/ui/button";
 import {
@@ -80,6 +80,48 @@ function createTemperatureStepInput(
   };
 }
 
+function buildSettingsPayload(
+  settings: AutomationSettings,
+  temperatureInput: string,
+  temperatureStepInputs: TemperatureStepInput[],
+  targetEmail: string,
+) {
+  const initialTemperature = Number(temperatureInput);
+  if (
+    !/^\d{2}:\d{2}$/.test(settings.onTime) ||
+    !/^\d{2}:\d{2}$/.test(settings.offTime) ||
+    !Number.isInteger(initialTemperature) ||
+    initialTemperature < -10 ||
+    initialTemperature > 10
+  ) {
+    return null;
+  }
+
+  const temperatureSteps: TemperatureStep[] = [];
+  for (const step of temperatureStepInputs) {
+    const temperature = Number(step.temperatureInput);
+    if (
+      !/^\d{2}:\d{2}$/.test(step.time) ||
+      !Number.isInteger(temperature) ||
+      temperature < -10 ||
+      temperature > 10
+    ) {
+      return null;
+    }
+    temperatureSteps.push({ time: step.time, temperature });
+  }
+  temperatureSteps.sort((a, b) => a.time.localeCompare(b.time));
+
+  return {
+    offTime: settings.offTime,
+    onTime: settings.onTime,
+    timezone: settings.timezone,
+    initialTemperature,
+    temperatureSteps,
+    targetEmail,
+  };
+}
+
 export function AutomationSettingsForm({
   targetEmail,
   mode = "automation",
@@ -100,51 +142,62 @@ export function AutomationSettingsForm({
     TemperatureStepInput[]
   >([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const hydratedRef = useRef(false);
+  const lastSavedRef = useRef("");
+  const latestSaveRef = useRef("");
+  const saveChainRef = useRef(Promise.resolve());
+  const lastOneTimeOnRef = useRef("");
+  const lastOneTimeOffRef = useRef("");
 
   const settingsQuery = apiR.user.getAutomationSettings.useQuery({
     targetEmail,
   });
-  const updateSettings = apiR.user.updateAutomationSettings.useMutation({
-    onSuccess: (_result, savedSettings) => {
-      const savedTemperatureSteps = savedSettings.temperatureSteps ?? [];
-      setSettings((prev) => ({
-        ...savedSettings,
-        temperatureSteps: savedTemperatureSteps,
-        oneTimeOverride: prev.oneTimeOverride,
-      }));
-      setTemperatureInput(String(savedSettings.initialTemperature));
-      setTemperatureStepInputs(
-        savedTemperatureSteps.map(createTemperatureStepInput),
-      );
-      setSaveMessage("Settings saved.");
-      void settingsQuery.refetch();
-    },
-    onError: (error) => {
-      setSaveMessage(`Save failed: ${error.message}`);
-    },
-  });
+  const updateSettings = apiR.user.updateAutomationSettings.useMutation();
   const setOneTimeDelay = apiR.user.setOneTimeOffDelay.useMutation({
-    onSuccess: () => {
+    onSuccess: (result) => {
+      setSettings((prev) => ({
+        ...prev,
+        oneTimeOverride: result.oneTimeOverride,
+      }));
       setSaveMessage("One-time turn-off delay saved.");
-      void settingsQuery.refetch();
     },
     onError: (error) => {
       setSaveMessage(`Delay failed: ${error.message}`);
     },
   });
   const setOneTimeOnTime = apiR.user.setOneTimeOnTime.useMutation({
-    onSuccess: () => {
+    onSuccess: (result) => {
+      setSettings((prev) => ({
+        ...prev,
+        oneTimeOverride: {
+          onTime: result.onTime,
+          onLocalDate: result.onLocalDate,
+          offTime: prev.oneTimeOverride?.offTime ?? null,
+          offLocalDate: prev.oneTimeOverride?.offLocalDate ?? null,
+          delayMinutes: prev.oneTimeOverride?.delayMinutes ?? null,
+          timezone: result.timezone,
+        },
+      }));
       setSaveMessage("One-time turn-on time saved.");
-      void settingsQuery.refetch();
     },
     onError: (error) => {
       setSaveMessage(`Turn-on override failed: ${error.message}`);
     },
   });
   const setOneTimeOffTime = apiR.user.setOneTimeOffTime.useMutation({
-    onSuccess: () => {
+    onSuccess: (result) => {
+      setSettings((prev) => ({
+        ...prev,
+        oneTimeOverride: {
+          onTime: prev.oneTimeOverride?.onTime ?? null,
+          onLocalDate: prev.oneTimeOverride?.onLocalDate ?? null,
+          offTime: result.offTime,
+          offLocalDate: result.offLocalDate,
+          delayMinutes: null,
+          timezone: result.timezone,
+        },
+      }));
       setSaveMessage("One-time turn-off time saved.");
-      void settingsQuery.refetch();
     },
     onError: (error) => {
       setSaveMessage(`Turn-off override failed: ${error.message}`);
@@ -153,7 +206,6 @@ export function AutomationSettingsForm({
   const clearOneTimeOnTime = apiR.user.clearOneTimeOnTime.useMutation({
     onSuccess: () => {
       setSaveMessage("One-time turn-on cleared.");
-      void settingsQuery.refetch();
     },
     onError: (error) => {
       setSaveMessage(`Clear failed: ${error.message}`);
@@ -162,7 +214,6 @@ export function AutomationSettingsForm({
   const clearOneTimeOffTime = apiR.user.clearOneTimeOffDelay.useMutation({
     onSuccess: () => {
       setSaveMessage("One-time turn-off cleared.");
-      void settingsQuery.refetch();
     },
     onError: (error) => {
       setSaveMessage(`Clear failed: ${error.message}`);
@@ -183,8 +234,66 @@ export function AutomationSettingsForm({
         settingsQuery.data.oneTimeOverride?.offTime ??
           settingsQuery.data.offTime,
       );
+      lastOneTimeOnRef.current =
+        settingsQuery.data.oneTimeOverride?.onTime ?? "";
+      lastOneTimeOffRef.current =
+        settingsQuery.data.oneTimeOverride?.offTime ?? "";
+      const initialPayload = buildSettingsPayload(
+        settingsQuery.data,
+        String(settingsQuery.data.initialTemperature),
+        settingsQuery.data.temperatureSteps.map(createTemperatureStepInput),
+        targetEmail,
+      );
+      lastSavedRef.current = initialPayload
+        ? JSON.stringify(initialPayload)
+        : "";
+      hydratedRef.current = true;
     }
-  }, [settingsQuery.data]);
+  }, [settingsQuery.data, targetEmail]);
+
+  useEffect(() => {
+    if (!hydratedRef.current || mode !== "automation") return;
+    const payload = buildSettingsPayload(
+      settings,
+      temperatureInput,
+      temperatureStepInputs,
+      targetEmail,
+    );
+    if (!payload) return;
+    const serialized = JSON.stringify(payload);
+    latestSaveRef.current = serialized;
+    if (serialized === lastSavedRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      saveChainRef.current = saveChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          if (serialized === lastSavedRef.current) return;
+          setSaveMessage("Saving…");
+          try {
+            await updateSettings.mutateAsync(payload);
+            lastSavedRef.current = serialized;
+            if (latestSaveRef.current === serialized) {
+              setSaveMessage("Settings saved.");
+            }
+          } catch (error) {
+            if (latestSaveRef.current === serialized) {
+              setSaveMessage(
+                `Save failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+              );
+            }
+          }
+        });
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [
+    mode,
+    settings,
+    targetEmail,
+    temperatureInput,
+    temperatureStepInputs,
+    updateSettings,
+  ]);
 
   function updateField<K extends keyof AutomationSettings>(
     key: K,
@@ -282,53 +391,83 @@ export function AutomationSettingsForm({
     setSaveMessage(null);
   }
 
-  function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const parsedTemperature = Number(temperatureInput);
-
-    if (
-      !Number.isInteger(parsedTemperature) ||
-      parsedTemperature < -10 ||
-      parsedTemperature > 10
-    ) {
-      setSaveMessage("Temperature must be a whole number from -10 to 10.");
+  function saveOneTimeOn(value: string) {
+    if (!/^\d{2}:\d{2}$/.test(value) || value === lastOneTimeOnRef.current) {
       return;
     }
+    lastOneTimeOnRef.current = value;
+    setSaveMessage("Saving…");
+    setOneTimeOnTime.mutate({ onTime: value, targetEmail });
+  }
 
-    const temperatureSteps: TemperatureStep[] = [];
-    for (const step of temperatureStepInputs) {
-      if (!/^\d{2}:\d{2}$/.test(step.time)) {
-        setSaveMessage("Each temperature change needs a valid time.");
-        return;
-      }
-
-      const parsedStepTemperature = Number(step.temperatureInput);
-      if (
-        !Number.isInteger(parsedStepTemperature) ||
-        parsedStepTemperature < -10 ||
-        parsedStepTemperature > 10
-      ) {
-        setSaveMessage(
-          "Each temperature change must be a whole number from -10 to 10.",
-        );
-        return;
-      }
-
-      temperatureSteps.push({
-        time: step.time,
-        temperature: parsedStepTemperature,
-      });
+  function saveOneTimeOff(value: string) {
+    if (!/^\d{2}:\d{2}$/.test(value) || value === lastOneTimeOffRef.current) {
+      return;
     }
-    temperatureSteps.sort((a, b) => a.time.localeCompare(b.time));
+    lastOneTimeOffRef.current = value;
+    setSaveMessage("Saving…");
+    setOneTimeOffTime.mutate({ offTime: value, targetEmail });
+  }
 
-    updateSettings.mutate({
-      offTime: settings.offTime,
-      onTime: settings.onTime,
-      timezone: settings.timezone,
-      initialTemperature: parsedTemperature,
-      temperatureSteps,
-      targetEmail,
+  function clearOnTime() {
+    const previous = settings.oneTimeOverride;
+    setSettings((current) => {
+      if (!current.oneTimeOverride) return current;
+      const next = {
+        ...current.oneTimeOverride,
+        onTime: null,
+        onLocalDate: null,
+      };
+      return {
+        ...current,
+        oneTimeOverride: next.offTime ? next : null,
+      };
     });
+    lastOneTimeOnRef.current = "";
+    setSaveMessage("Clearing…");
+    clearOneTimeOnTime.mutate(
+      { targetEmail },
+      {
+        onError: () => {
+          setSettings((current) => ({
+            ...current,
+            oneTimeOverride: previous,
+          }));
+          lastOneTimeOnRef.current = previous?.onTime ?? "";
+        },
+      },
+    );
+  }
+
+  function clearOffTime() {
+    const previous = settings.oneTimeOverride;
+    setSettings((current) => {
+      if (!current.oneTimeOverride) return current;
+      const next = {
+        ...current.oneTimeOverride,
+        offTime: null,
+        offLocalDate: null,
+        delayMinutes: null,
+      };
+      return {
+        ...current,
+        oneTimeOverride: next.onTime ? next : null,
+      };
+    });
+    lastOneTimeOffRef.current = "";
+    setSaveMessage("Clearing…");
+    clearOneTimeOffTime.mutate(
+      { targetEmail },
+      {
+        onError: () => {
+          setSettings((current) => ({
+            ...current,
+            oneTimeOverride: previous,
+          }));
+          lastOneTimeOffRef.current = previous?.offTime ?? "";
+        },
+      },
+    );
   }
 
   if (settingsQuery.isLoading) {
@@ -336,10 +475,7 @@ export function AutomationSettingsForm({
   }
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="mx-auto w-full min-w-0 max-w-xl rounded-3xl bg-white p-4 text-slate-900 shadow-2xl shadow-black/20 ring-1 ring-white/20 sm:mt-4 sm:p-6"
-    >
+    <div className="mx-auto w-full min-w-0 max-w-xl rounded-3xl bg-white p-4 text-slate-900 shadow-2xl shadow-black/20 ring-1 ring-white/20 sm:mt-4 sm:p-6">
       <h1 className="mb-5 flex items-center gap-3 text-2xl font-bold tracking-tight">
         <span className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-100 text-[#2e026d]">
           {mode === "automation" ? (
@@ -558,122 +694,81 @@ export function AutomationSettingsForm({
 
         {mode === "once" && (
           <>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                <Clock3
-                  className="h-4 w-4 text-violet-700"
-                  aria-hidden="true"
+            <div className="grid min-w-0 grid-cols-2 gap-3">
+              <label className="flex min-w-0 flex-col gap-1 text-sm font-medium">
+                Next Turn On
+                <input
+                  type="time"
+                  value={oneTimeOnInput}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setOneTimeOnInput(value);
+                    saveOneTimeOn(value);
+                  }}
+                  onBlur={() => saveOneTimeOn(oneTimeOnInput)}
+                  className="h-11 w-full min-w-0 rounded-xl border border-slate-300 px-3"
                 />
-                One-Time Times
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex min-w-0 flex-col gap-1 text-sm">
-                  Next Turn On
-                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
-                    <input
-                      type="time"
-                      value={oneTimeOnInput}
-                      onChange={(event) => {
-                        setOneTimeOnInput(event.target.value);
-                        setSaveMessage(null);
-                      }}
-                      className="min-w-0 flex-1 rounded border px-3 py-2"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={lightButtonClass}
-                      onClick={() =>
-                        setOneTimeOnTime.mutate({
-                          onTime: oneTimeOnInput,
-                          targetEmail,
-                        })
-                      }
-                      disabled={setOneTimeOnTime.isPending}
-                    >
-                      Use once
-                    </Button>
-                  </div>
-                </label>
-                <label className="flex min-w-0 flex-col gap-1 text-sm">
-                  Next Turn Off
-                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
-                    <input
-                      type="time"
-                      value={oneTimeOffInput}
-                      onChange={(event) => {
-                        setOneTimeOffInput(event.target.value);
-                        setSaveMessage(null);
-                      }}
-                      className="min-w-0 flex-1 rounded border px-3 py-2"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={lightButtonClass}
-                      onClick={() =>
-                        setOneTimeOffTime.mutate({
-                          offTime: oneTimeOffInput,
-                          targetEmail,
-                        })
-                      }
-                      disabled={setOneTimeOffTime.isPending}
-                    >
-                      Use once
-                    </Button>
-                  </div>
-                </label>
-              </div>
-
-              {settings.oneTimeOverride && (
-                <div className="mt-3 grid gap-2 text-sm">
-                  {settings.oneTimeOverride.onTime &&
-                    settings.oneTimeOverride.onLocalDate && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span>
-                          Next turn-on:{" "}
-                          <strong>{settings.oneTimeOverride.onTime}</strong> on{" "}
-                          {settings.oneTimeOverride.onLocalDate}.
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            clearOneTimeOnTime.mutate({ targetEmail })
-                          }
-                          disabled={clearOneTimeOnTime.isPending}
-                        >
-                          <X className="mr-1 h-4 w-4" />
-                          Clear
-                        </Button>
-                      </div>
-                    )}
-                  {settings.oneTimeOverride.offTime &&
-                    settings.oneTimeOverride.offLocalDate && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span>
-                          Next turn-off:{" "}
-                          <strong>{settings.oneTimeOverride.offTime}</strong> on{" "}
-                          {settings.oneTimeOverride.offLocalDate}.
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            clearOneTimeOffTime.mutate({ targetEmail })
-                          }
-                          disabled={clearOneTimeOffTime.isPending}
-                        >
-                          <X className="mr-1 h-4 w-4" />
-                          Clear
-                        </Button>
-                      </div>
-                    )}
-                </div>
-              )}
+              </label>
+              <label className="flex min-w-0 flex-col gap-1 text-sm font-medium">
+                Next Turn Off
+                <input
+                  type="time"
+                  value={oneTimeOffInput}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setOneTimeOffInput(value);
+                    saveOneTimeOff(value);
+                  }}
+                  onBlur={() => saveOneTimeOff(oneTimeOffInput)}
+                  className="h-11 w-full min-w-0 rounded-xl border border-slate-300 px-3"
+                />
+              </label>
             </div>
+
+            {settings.oneTimeOverride && (
+              <div className="grid gap-2 text-sm">
+                {settings.oneTimeOverride.onTime &&
+                  settings.oneTimeOverride.onLocalDate && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>
+                        Next turn-on:{" "}
+                        <strong>{settings.oneTimeOverride.onTime}</strong> on{" "}
+                        {settings.oneTimeOverride.onLocalDate}.
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearOnTime}
+                        disabled={clearOneTimeOnTime.isPending}
+                      >
+                        <X className="mr-1 h-4 w-4" />
+                        Clear
+                      </Button>
+                    </div>
+                  )}
+                {settings.oneTimeOverride.offTime &&
+                  settings.oneTimeOverride.offLocalDate && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>
+                        Next turn-off:{" "}
+                        <strong>{settings.oneTimeOverride.offTime}</strong> on{" "}
+                        {settings.oneTimeOverride.offLocalDate}.
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearOffTime}
+                        disabled={clearOneTimeOffTime.isPending}
+                      >
+                        <X className="mr-1 h-4 w-4" />
+                        Clear
+                      </Button>
+                    </div>
+                  )}
+              </div>
+            )}
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
@@ -707,16 +802,7 @@ export function AutomationSettingsForm({
         )}
       </div>
 
-      {mode === "automation" ? (
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <Button type="submit" disabled={updateSettings.isPending}>
-            {updateSettings.isPending ? "Saving..." : "Save settings"}
-          </Button>
-          {saveMessage && <p className="text-sm">{saveMessage}</p>}
-        </div>
-      ) : (
-        saveMessage && <p className="mt-4 text-sm">{saveMessage}</p>
-      )}
-    </form>
+      {saveMessage && <p className="mt-4 text-sm">{saveMessage}</p>}
+    </div>
   );
 }
