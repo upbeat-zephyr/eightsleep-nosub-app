@@ -683,13 +683,13 @@ export function AutomationSettingsForm({
                 />
                 Delay Next Turn Off
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {[30, 60, 120, 180].map((minutes) => (
                   <Button
                     key={minutes}
                     type="button"
                     variant="outline"
-                    className={lightButtonClass}
+                    className={`${lightButtonClass} min-w-0 px-1.5 sm:px-4`}
                     onClick={() =>
                       setOneTimeDelay.mutate({
                         delayMinutes: minutes,
