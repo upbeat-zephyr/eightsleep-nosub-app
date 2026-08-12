@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarClock, Clock3, Moon, Sparkles } from "lucide-react";
+import { CalendarClock, Clock3, Moon, Plane, Sparkles } from "lucide-react";
 import { EightLoginDialog } from "~/components/eightLogin";
 import { LogoutButton } from "~/components/logout";
 import { AutomationSettingsForm } from "~/components/automationSettingsForm";
 import { NapPanel } from "~/components/napPanel";
+import { AwayPanel } from "~/components/awayPanel";
 import { apiR } from "~/trpc/react";
 
 export default function ClientHome({
@@ -14,9 +15,9 @@ export default function ClientHome({
   initialLoginState: boolean;
 }) {
   const [isLoggedIn, setIsLoggedIn] = useState(initialLoginState);
-  const [activeView, setActiveView] = useState<"nap" | "automation" | "once">(
-    "nap",
-  );
+  const [activeView, setActiveView] = useState<
+    "nap" | "automation" | "once" | "away"
+  >("nap");
   const [automationTarget, setAutomationTarget] = useState("");
   const household = apiR.nap.dashboard.useQuery(undefined, {
     enabled: isLoggedIn,
@@ -49,7 +50,7 @@ export default function ClientHome({
           </div>
         </nav>
         <div className="container min-w-0 px-3 pb-28 pt-4 sm:px-4 sm:pt-7 md:pb-10">
-          <div className="mx-auto mb-5 hidden max-w-xl grid-cols-3 gap-1 rounded-2xl border border-white/10 bg-white/10 p-1 backdrop-blur md:grid">
+          <div className="mx-auto mb-5 hidden max-w-xl grid-cols-4 gap-1 rounded-2xl border border-white/10 bg-white/10 p-1 backdrop-blur md:grid">
             <AppNavButton
               active={activeView === "nap"}
               label="Nap"
@@ -67,6 +68,12 @@ export default function ClientHome({
               label="Once"
               icon={<Clock3 className="h-4 w-4" />}
               onClick={() => setActiveView("once")}
+            />
+            <AppNavButton
+              active={activeView === "away"}
+              label="Away"
+              icon={<Plane className="h-4 w-4" />}
+              onClick={() => setActiveView("away")}
             />
           </div>
 
@@ -94,6 +101,8 @@ export default function ClientHome({
               sessions={household.data?.sessions ?? []}
               refreshDashboard={() => void household.refetch()}
             />
+          ) : activeView === "away" ? (
+            <AwayPanel members={household.data?.members ?? []} />
           ) : (
             <div className="mx-auto grid max-w-xl gap-4">
               {(household.data?.members.length ?? 0) > 1 && (
@@ -129,24 +138,34 @@ export default function ClientHome({
           aria-label="Features"
           className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#160b35]/95 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl md:hidden"
         >
-          <div className="mx-auto grid max-w-md grid-cols-3 gap-1">
+          <div className="mx-auto grid max-w-md grid-cols-4 gap-1">
             <AppNavButton
               active={activeView === "nap"}
               label="Nap"
               icon={<Sparkles className="h-5 w-5" />}
               onClick={() => setActiveView("nap")}
+              iconOnly
             />
             <AppNavButton
               active={activeView === "automation"}
               label="Automation"
               icon={<CalendarClock className="h-5 w-5" />}
               onClick={() => setActiveView("automation")}
+              iconOnly
             />
             <AppNavButton
               active={activeView === "once"}
               label="Once"
               icon={<Clock3 className="h-5 w-5" />}
               onClick={() => setActiveView("once")}
+              iconOnly
+            />
+            <AppNavButton
+              active={activeView === "away"}
+              label="Away"
+              icon={<Plane className="h-5 w-5" />}
+              onClick={() => setActiveView("away")}
+              iconOnly
             />
           </div>
         </nav>
@@ -175,15 +194,19 @@ function AppNavButton({
   label,
   icon,
   onClick,
+  iconOnly = false,
 }: {
   active: boolean;
   label: string;
   icon: React.ReactNode;
   onClick: () => void;
+  iconOnly?: boolean;
 }) {
   return (
     <button
       type="button"
+      aria-label={label}
+      title={label}
       aria-current={active ? "page" : undefined}
       onClick={onClick}
       className={`flex min-h-12 items-center justify-center gap-1.5 rounded-xl px-2 text-sm font-semibold transition [&>svg]:shrink-0 ${
@@ -193,7 +216,7 @@ function AppNavButton({
       }`}
     >
       {icon}
-      {label}
+      {!iconOnly && label}
     </button>
   );
 }

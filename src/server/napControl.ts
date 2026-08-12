@@ -2,6 +2,7 @@ import { db, queryClient } from "~/server/db";
 import { users } from "~/server/db/schema";
 import { eq } from "drizzle-orm";
 import type postgres from "postgres";
+import { ensureAwayPeriodsTable } from "~/server/awayPeriods";
 import { obtainFreshAccessToken } from "~/server/eight/auth";
 import { setHeatingLevel, turnOffSide, turnOnSide } from "~/server/eight/eight";
 import type { Token } from "~/server/eight/types";
@@ -65,7 +66,7 @@ async function getFreshToken(targetEmail: string): Promise<Token> {
   return refreshed;
 }
 
-async function withTargetLock<T>(
+export async function withTargetLock<T>(
   targetEmail: string,
   operation: (sql: TransactionSql) => Promise<T>,
 ): Promise<T> {
@@ -84,6 +85,17 @@ export async function startNapForTarget(input: {
 }): Promise<NapSession> {
   const token = await getFreshToken(input.targetEmail);
   return withTargetLock(input.targetEmail, async (sql) => {
+    await ensureAwayPeriodsTable();
+    const activeAway = await sql`
+      SELECT 1 FROM "8slp_away_periods"
+      WHERE target_email = ${input.targetEmail}
+        AND starts_at <= now()
+        AND ends_at > now()
+      LIMIT 1
+    `;
+    if (activeAway.length > 0) {
+      throw new Error("End Away mode before starting a nap.");
+    }
     const now = new Date();
     const session: NapSession = {
       id: crypto.randomUUID(),
@@ -134,6 +146,39 @@ export async function startNapForTarget(input: {
     }
 
     return session;
+  });
+}
+
+export async function startAwayForTarget(input: {
+  startedBy: string;
+  targetEmail: string;
+  endsAt: Date;
+}): Promise<void> {
+  const token = await getFreshToken(input.targetEmail);
+  await withTargetLock(input.targetEmail, async (sql) => {
+    await ensureAwayPeriodsTable();
+    await ensureNapSessionsTable();
+    await retryApiCall(() => turnOffSide(token, token.eightUserId));
+    await sql`
+      DELETE FROM "8slp_nap_sessions"
+      WHERE target_email = ${input.targetEmail}
+    `;
+    await sql`
+      INSERT INTO "8slp_away_periods" (
+        target_email, started_by, starts_at, ends_at, updated_at
+      ) VALUES (
+        ${input.targetEmail},
+        ${input.startedBy},
+        now(),
+        ${input.endsAt.toISOString()}::timestamptz,
+        now()
+      )
+      ON CONFLICT (target_email) DO UPDATE SET
+        started_by = EXCLUDED.started_by,
+        starts_at = EXCLUDED.starts_at,
+        ends_at = EXCLUDED.ends_at,
+        updated_at = now()
+    `;
   });
 }
 

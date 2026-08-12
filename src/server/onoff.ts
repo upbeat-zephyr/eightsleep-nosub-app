@@ -13,6 +13,8 @@ import {
 } from "./automationOverrides";
 import { getTemperatureScheduleSteps } from "./temperatureSchedule";
 import { processExpiredNaps } from "./napControl";
+import { getActiveAwayPeriods } from "./awayPeriods";
+import { withTargetLock } from "./napControl";
 
 export type OnOffConfig = {
   off_time: string;
@@ -184,13 +186,19 @@ export async function runOnOffJob(options?: {
   let temperatureStepCount = 0;
   let skippedCount = 0;
   const napResult = await processExpiredNaps(options?.now ?? new Date());
+  const awayTargetEmails = new Set(
+    (await getActiveAwayPeriods(options?.now ?? new Date())).map(
+      (period) => period.targetEmail,
+    ),
+  );
 
   for (const entry of allUsers) {
     try {
       const { user, profile } = entry;
       if (
         napResult.activeTargetEmails.has(user.email) ||
-        napResult.processedTargetEmails.has(user.email)
+        napResult.processedTargetEmails.has(user.email) ||
+        awayTargetEmails.has(user.email)
       ) {
         skippedCount += 1;
         continue;
@@ -287,26 +295,46 @@ export async function runOnOffJob(options?: {
         eightUserId: user.eightUserId,
       };
       const fresh = await withFreshToken(user.email, token);
+      const actionRan = await withTargetLock(user.email, async (sql) => {
+        const activeAway = await sql`
+          SELECT 1 FROM "8slp_away_periods"
+          WHERE target_email = ${user.email}
+            AND starts_at <= now()
+            AND ends_at > now()
+          LIMIT 1
+        `;
+        if (activeAway.length > 0) return false;
+
+        if (action === "off") {
+          await retryApiCall(() => turnOffSide(fresh, user.eightUserId));
+        } else if (action === "on") {
+          await retryApiCall(() => turnOnSide(fresh, user.eightUserId));
+          await retryApiCall(() =>
+            setHeatingLevel(fresh, user.eightUserId, userConfig.initial_level),
+          );
+        } else if (scheduledTemperatureLevel !== null) {
+          await retryApiCall(() => turnOnSide(fresh, user.eightUserId));
+          await retryApiCall(() =>
+            setHeatingLevel(fresh, user.eightUserId, scheduledTemperatureLevel),
+          );
+        }
+        return true;
+      });
+      if (!actionRan) {
+        skippedCount += 1;
+        continue;
+      }
       if (action === "off") {
-        await retryApiCall(() => turnOffSide(fresh, user.eightUserId));
         if (usingOneTimeOffOverride) {
           await clearOneTimeOffOverride(user.email);
         }
         offCount += 1;
       } else if (action === "on") {
-        await retryApiCall(() => turnOnSide(fresh, user.eightUserId));
-        await retryApiCall(() =>
-          setHeatingLevel(fresh, user.eightUserId, userConfig.initial_level),
-        );
         if (usingOneTimeOnOverride) {
           await clearOneTimeOnOverride(user.email);
         }
         onCount += 1;
       } else if (scheduledTemperatureLevel !== null) {
-        await retryApiCall(() => turnOnSide(fresh, user.eightUserId));
-        await retryApiCall(() =>
-          setHeatingLevel(fresh, user.eightUserId, scheduledTemperatureLevel),
-        );
         temperatureStepCount += 1;
       }
       ranFor += 1;
