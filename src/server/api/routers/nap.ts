@@ -17,7 +17,13 @@ export const napRouter = createTRPCRouter({
     const requesterEmail = await getSessionEmail(ctx.headers);
     const members = await getHouseholdMembers(requesterEmail);
     const visibleEmails = new Set(members.map((member) => member.email));
-    const sessions = (await getNapSessions())
+    let savedSessions: Awaited<ReturnType<typeof getNapSessions>> = [];
+    try {
+      savedSessions = await getNapSessions();
+    } catch (error) {
+      console.error("Failed to load nap sessions:", error);
+    }
+    const sessions = savedSessions
       .filter((session) => visibleEmails.has(session.targetEmail))
       .map((session) => ({
         targetEmail: session.targetEmail,

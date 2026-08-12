@@ -50,6 +50,16 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
         httpBatchLink({
           transformer: SuperJSON,
           url: getBaseUrl() + "/api/trpc",
+          fetch: async (url, options) => {
+            const response = await fetch(url, options);
+            const contentType = response.headers.get("content-type") ?? "";
+            if (!contentType.includes("application/json")) {
+              throw new Error(
+                `The server returned a temporary ${response.status} response. Please try again.`,
+              );
+            }
+            return response;
+          },
           headers: () => {
             const headers = new Headers();
             headers.set("x-trpc-source", "nextjs-react");
@@ -57,7 +67,7 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
           },
         }),
       ],
-    })
+    }),
   );
 
   return (

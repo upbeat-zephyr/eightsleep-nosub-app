@@ -24,11 +24,22 @@ function formatRemaining(endsAt: string, now: number): string {
   return remainder ? `${hours}h ${remainder}m left` : `${hours}h left`;
 }
 
-export function NapPanel({ members }: { members: HouseholdMember[] }) {
-  const utils = apiR.useUtils();
-  const dashboard = apiR.nap.dashboard.useQuery(undefined, {
-    refetchInterval: 60_000,
-  });
+type NapSession = {
+  targetEmail: string;
+  temperature: number;
+  startedAt: string;
+  endsAt: string;
+};
+
+export function NapPanel({
+  members,
+  sessions,
+  refreshDashboard,
+}: {
+  members: HouseholdMember[];
+  sessions: NapSession[];
+  refreshDashboard: () => void;
+}) {
   const [target, setTarget] = useState("");
   const [duration, setDuration] = useState<number | "custom">(30);
   const [customDuration, setCustomDuration] = useState("90");
@@ -53,14 +64,14 @@ export function NapPanel({ members }: { members: HouseholdMember[] }) {
           ? "Nap started on one side, but the other side could not be reached."
           : "Nap started. Your side will turn off automatically.",
       );
-      void utils.nap.dashboard.invalidate();
+      refreshDashboard();
     },
     onError: (error) => setMessage(error.message),
   });
   const stopNap = apiR.nap.stop.useMutation({
     onSuccess: () => {
       setMessage("Nap ended and the selected side is off.");
-      void utils.nap.dashboard.invalidate();
+      refreshDashboard();
     },
     onError: (error) => setMessage(error.message),
   });
@@ -77,7 +88,7 @@ export function NapPanel({ members }: { members: HouseholdMember[] }) {
 
   return (
     <div className="mx-auto grid w-full max-w-xl gap-4">
-      {dashboard.data?.sessions.map((session) => {
+      {sessions.map((session) => {
         const member = members.find(
           (candidate) => candidate.email === session.targetEmail,
         );

@@ -20,6 +20,8 @@ export default function ClientHome({
   const [automationTarget, setAutomationTarget] = useState("");
   const household = apiR.nap.dashboard.useQuery(undefined, {
     enabled: isLoggedIn,
+    refetchInterval: activeView === "nap" ? 60_000 : false,
+    retry: 1,
   });
 
   useEffect(() => {
@@ -72,7 +74,7 @@ export default function ClientHome({
             <div className="py-12 text-center text-sm text-white/70">
               Loading your bed…
             </div>
-          ) : household.isError ? (
+          ) : household.isError && !household.data ? (
             <div className="mx-auto max-w-xl rounded-2xl border border-red-200/20 bg-red-950/30 p-5 text-center">
               <p className="font-semibold">Your bed could not be loaded.</p>
               <p className="mt-1 text-sm text-white/65">
@@ -87,7 +89,11 @@ export default function ClientHome({
               </button>
             </div>
           ) : activeView === "nap" ? (
-            <NapPanel members={household.data?.members ?? []} />
+            <NapPanel
+              members={household.data?.members ?? []}
+              sessions={household.data?.sessions ?? []}
+              refreshDashboard={() => void household.refetch()}
+            />
           ) : (
             <div className="mx-auto grid max-w-xl gap-4">
               {(household.data?.members.length ?? 0) > 1 && (
