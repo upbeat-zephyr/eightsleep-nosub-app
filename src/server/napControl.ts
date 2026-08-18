@@ -12,7 +12,7 @@ import {
   type NapSession,
 } from "~/server/napSessions";
 
-const API_RETRY_ATTEMPTS = 1;
+const API_RETRY_ATTEMPTS = 3;
 type TransactionSql = postgres.TransactionSql;
 
 async function retryApiCall<T>(apiCall: () => Promise<T>): Promise<T> {
