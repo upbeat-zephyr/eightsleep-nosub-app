@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { runOnOffJob } from "~/server/onoff";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function GET(request: NextRequest): Promise<Response> {
   const authHeader = request.headers.get("authorization");

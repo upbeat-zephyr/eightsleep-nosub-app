@@ -12,8 +12,15 @@ import {
   type NapSession,
 } from "~/server/napSessions";
 
-const API_RETRY_ATTEMPTS = 3;
+const API_RETRY_ATTEMPTS = 2;
 type TransactionSql = postgres.TransactionSql;
+
+function isTimeoutError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
+  );
+}
 
 async function retryApiCall<T>(apiCall: () => Promise<T>): Promise<T> {
   let lastError: unknown;
@@ -22,14 +29,30 @@ async function retryApiCall<T>(apiCall: () => Promise<T>): Promise<T> {
       return await apiCall();
     } catch (error) {
       lastError = error;
-      if (attempt < API_RETRY_ATTEMPTS - 1) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, 500 * Math.pow(2, attempt)),
-        );
+      if (isTimeoutError(error) || attempt >= API_RETRY_ATTEMPTS - 1) {
+        break;
       }
+      await new Promise((resolve) =>
+        setTimeout(resolve, 250 * Math.pow(2, attempt)),
+      );
     }
   }
   throw lastError;
+}
+
+async function assertNotAway(
+  sql: TransactionSql,
+  targetEmail: string,
+  message: string,
+): Promise<void> {
+  const activeAway = await sql`
+    SELECT 1 FROM "8slp_away_periods"
+    WHERE target_email = ${targetEmail} AND starts_at <= now() AND ends_at > now()
+    LIMIT 1
+  `;
+  if (activeAway.length > 0) {
+    throw new Error(message);
+  }
 }
 
 export async function getFreshToken(targetEmail: string): Promise<Token> {
@@ -71,21 +94,14 @@ export async function setDirectPower(
   state: "on" | "off",
 ): Promise<void> {
   const token = await getFreshToken(targetEmail);
-  await withTargetLock(targetEmail, async (sql) => {
-    if (state === "on") {
-      await ensureAwayPeriodsTable();
-      const activeAway = await sql`
-        SELECT 1 FROM "8slp_away_periods"
-        WHERE target_email = ${targetEmail} AND starts_at <= now() AND ends_at > now()
-        LIMIT 1
-      `;
-      if (activeAway.length > 0)
-        throw new Error("End Away mode before turning the Pod on.");
-      await retryApiCall(() => turnOnSide(token, token.eightUserId));
-    } else {
-      await retryApiCall(() => turnOffSide(token, token.eightUserId));
-    }
-  });
+  if (state === "on") {
+    await withTargetLock(targetEmail, async (sql) => {
+      await assertNotAway(sql, targetEmail, "End Away mode before turning the Pod on.");
+    });
+    await retryApiCall(() => turnOnSide(token, token.eightUserId));
+    return;
+  }
+  await retryApiCall(() => turnOffSide(token, token.eightUserId));
 }
 
 export async function setDirectTemperature(
@@ -95,24 +111,20 @@ export async function setDirectTemperature(
 ): Promise<void> {
   const token = await getFreshToken(targetEmail);
   await withTargetLock(targetEmail, async (sql) => {
-    await ensureAwayPeriodsTable();
-    const activeAway = await sql`
-      SELECT 1 FROM "8slp_away_periods"
-      WHERE target_email = ${targetEmail} AND starts_at <= now() AND ends_at > now()
-      LIMIT 1
-    `;
-    if (activeAway.length > 0)
-      throw new Error("End Away mode before changing temperature.");
-    await retryApiCall(() => turnOnSide(token, token.eightUserId));
-    await retryApiCall(() =>
-      setHeatingLevel(
-        token,
-        token.eightUserId,
-        temperature * 10,
-        (durationMinutes ?? 0) * 60,
-      ),
+    await assertNotAway(
+      sql,
+      targetEmail,
+      "End Away mode before changing temperature.",
     );
   });
+  await retryApiCall(() =>
+    setHeatingLevel(
+      token,
+      token.eightUserId,
+      temperature * 10,
+      (durationMinutes ?? 0) * 60,
+    ),
+  );
 }
 
 export async function withTargetLock<T>(
@@ -120,6 +132,7 @@ export async function withTargetLock<T>(
   operation: (sql: TransactionSql) => Promise<T>,
 ): Promise<T> {
   await ensureNapSessionsTable();
+  await ensureAwayPeriodsTable();
   return (await queryClient.begin(async (sql) => {
     await sql`SELECT pg_advisory_xact_lock(hashtext(${targetEmail}))`;
     return operation(sql);
@@ -133,44 +146,53 @@ export async function startNapForTarget(input: {
   durationMinutes: number;
 }): Promise<NapSession> {
   const token = await getFreshToken(input.targetEmail);
-  return withTargetLock(input.targetEmail, async (sql) => {
-    await ensureAwayPeriodsTable();
-    const activeAway = await sql`
-      SELECT 1 FROM "8slp_away_periods"
-      WHERE target_email = ${input.targetEmail}
-        AND starts_at <= now()
-        AND ends_at > now()
-      LIMIT 1
-    `;
-    if (activeAway.length > 0) {
-      throw new Error("End Away mode before starting a nap.");
-    }
-    const now = new Date();
-    const session: NapSession = {
-      id: crypto.randomUUID(),
-      startedBy: input.startedBy,
-      targetEmail: input.targetEmail,
-      temperature: input.temperature * 10,
-      startedAt: now,
-      endsAt: new Date(now.getTime() + input.durationMinutes * 60 * 1000),
-    };
+  await withTargetLock(input.targetEmail, async (sql) => {
+    await assertNotAway(
+      sql,
+      input.targetEmail,
+      "End Away mode before starting a nap.",
+    );
+  });
 
-    await retryApiCall(() => turnOnSide(token, token.eightUserId));
-    try {
-      try {
-        await setHeatingLevel(
-          token,
-          token.eightUserId,
-          session.temperature,
-          input.durationMinutes * 60,
-        );
-      } catch (timedError) {
-        console.warn(
-          `Timed temperature control failed for ${input.targetEmail}; using scheduler cutoff instead:`,
-          timedError,
-        );
-        await setHeatingLevel(token, token.eightUserId, session.temperature);
-      }
+  const now = new Date();
+  const session: NapSession = {
+    id: crypto.randomUUID(),
+    startedBy: input.startedBy,
+    targetEmail: input.targetEmail,
+    temperature: input.temperature * 10,
+    startedAt: now,
+    endsAt: new Date(now.getTime() + input.durationMinutes * 60 * 1000),
+  };
+
+  try {
+    await retryApiCall(() =>
+      setHeatingLevel(
+        token,
+        token.eightUserId,
+        session.temperature,
+        input.durationMinutes * 60,
+      ),
+    );
+  } catch (timedError) {
+    if (isTimeoutError(timedError)) {
+      throw timedError;
+    }
+    console.warn(
+      `Timed temperature control failed for ${input.targetEmail}; using scheduler cutoff instead:`,
+      timedError,
+    );
+    await retryApiCall(() =>
+      setHeatingLevel(token, token.eightUserId, session.temperature),
+    );
+  }
+
+  try {
+    return await withTargetLock(input.targetEmail, async (sql) => {
+      await assertNotAway(
+        sql,
+        input.targetEmail,
+        "End Away mode before starting a nap.",
+      );
       await sql`
         INSERT INTO "8slp_nap_sessions" (
           id, started_by, target_email, temperature, started_at, ends_at
@@ -187,15 +209,14 @@ export async function startNapForTarget(input: {
           started_at = EXCLUDED.started_at,
           ends_at = EXCLUDED.ends_at
       `;
-    } catch (error) {
-      await retryApiCall(() => turnOffSide(token, token.eightUserId)).catch(
-        () => undefined,
-      );
-      throw error;
-    }
-
-    return session;
-  });
+      return session;
+    });
+  } catch (error) {
+    await retryApiCall(() => turnOffSide(token, token.eightUserId)).catch(
+      () => undefined,
+    );
+    throw error;
+  }
 }
 
 export async function startAwayForTarget(input: {
@@ -205,12 +226,9 @@ export async function startAwayForTarget(input: {
   endsAt: Date;
 }): Promise<void> {
   const token = await getFreshToken(input.targetEmail);
+  const activateNow = input.startsAt <= new Date();
   await withTargetLock(input.targetEmail, async (sql) => {
-    await ensureAwayPeriodsTable();
-    await ensureNapSessionsTable();
-    const activateNow = input.startsAt <= new Date();
     if (activateNow) {
-      await retryApiCall(() => turnOffSide(token, token.eightUserId));
       await sql`
         DELETE FROM "8slp_nap_sessions"
         WHERE target_email = ${input.targetEmail}
@@ -235,6 +253,9 @@ export async function startAwayForTarget(input: {
         updated_at = now()
     `;
   });
+  if (activateNow) {
+    await retryApiCall(() => turnOffSide(token, token.eightUserId));
+  }
 }
 
 export async function activateScheduledAwayForTarget(
@@ -242,9 +263,7 @@ export async function activateScheduledAwayForTarget(
   now = new Date(),
 ): Promise<boolean> {
   const token = await getFreshToken(targetEmail);
-  return withTargetLock(targetEmail, async (sql) => {
-    await ensureAwayPeriodsTable();
-    await ensureNapSessionsTable();
+  const activated = await withTargetLock(targetEmail, async (sql) => {
     const due = await sql`
       SELECT 1 FROM "8slp_away_periods"
       WHERE target_email = ${targetEmail}
@@ -255,7 +274,6 @@ export async function activateScheduledAwayForTarget(
     `;
     if (due.length === 0) return false;
 
-    await retryApiCall(() => turnOffSide(token, token.eightUserId));
     await sql`
       DELETE FROM "8slp_nap_sessions"
       WHERE target_email = ${targetEmail}
@@ -267,11 +285,13 @@ export async function activateScheduledAwayForTarget(
     `;
     return true;
   });
+  if (!activated) return false;
+  await retryApiCall(() => turnOffSide(token, token.eightUserId));
+  return true;
 }
 
 export async function clearAwayForTarget(targetEmail: string): Promise<void> {
   await withTargetLock(targetEmail, async (sql) => {
-    await ensureAwayPeriodsTable();
     await sql`
       DELETE FROM "8slp_away_periods"
       WHERE target_email = ${targetEmail}
@@ -284,6 +304,18 @@ export async function stopNapForTarget(
   sessionId?: string,
 ): Promise<boolean> {
   const token = await getFreshToken(targetEmail);
+  const shouldStop = await withTargetLock(targetEmail, async (sql) => {
+    if (!sessionId) return true;
+    const current = await sql`
+      SELECT id FROM "8slp_nap_sessions"
+      WHERE target_email = ${targetEmail}
+      LIMIT 1
+    `;
+    return current[0]?.id === sessionId;
+  });
+  if (!shouldStop) return false;
+
+  await retryApiCall(() => turnOffSide(token, token.eightUserId));
   return withTargetLock(targetEmail, async (sql) => {
     if (sessionId) {
       const current = await sql`
@@ -294,10 +326,6 @@ export async function stopNapForTarget(
       if (current[0]?.id !== sessionId) {
         return false;
       }
-    }
-
-    await retryApiCall(() => turnOffSide(token, token.eightUserId));
-    if (sessionId) {
       await sql`
         DELETE FROM "8slp_nap_sessions"
         WHERE target_email = ${targetEmail} AND id = ${sessionId}

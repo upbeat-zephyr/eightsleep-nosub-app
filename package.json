@@ -14,6 +14,7 @@
     "agent:mcp": "node mcp/eightsleep-agent/server.mjs serve",
     "agent:mcp:doctor": "node mcp/eightsleep-agent/server.mjs doctor",
     "test:mcp": "node --test mcp/eightsleep-agent/test/*.test.mjs",
+    "test:eight": "npx --yes tsx --test src/server/eight/eight.test.ts",
     "start": "next start"
   },
   "dependencies": {

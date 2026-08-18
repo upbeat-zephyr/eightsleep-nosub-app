@@ -1,7 +1,7 @@
 "use client";
 
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import { httpBatchLink, loggerLink } from "@trpc/client";
+import { httpBatchLink, httpLink, loggerLink, splitLink } from "@trpc/client";
 import { createTRPCReact } from "@trpc/react-query";
 import { type inferRouterInputs, type inferRouterOutputs } from "@trpc/server";
 import { useState } from "react";
@@ -36,6 +36,26 @@ export type RouterInputs = inferRouterInputs<AppRouter>;
  */
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
 
+async function fetchTrpc(
+  url: string | URL | Request,
+  options?: RequestInit,
+): Promise<Response> {
+  const response = await fetch(url, options);
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    throw new Error(
+      `The server returned a temporary ${response.status} response. Please try again.`,
+    );
+  }
+  return response;
+}
+
+function trpcHeaders() {
+  const headers = new Headers();
+  headers.set("x-trpc-source", "nextjs-react");
+  return headers;
+}
+
 export function TRPCReactProvider(props: { children: React.ReactNode }) {
   const queryClient = getQueryClient();
 
@@ -47,24 +67,20 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
             process.env.NODE_ENV === "development" ||
             (op.direction === "down" && op.result instanceof Error),
         }),
-        httpBatchLink({
-          transformer: SuperJSON,
-          url: getBaseUrl() + "/api/trpc",
-          fetch: async (url, options) => {
-            const response = await fetch(url, options);
-            const contentType = response.headers.get("content-type") ?? "";
-            if (!contentType.includes("application/json")) {
-              throw new Error(
-                `The server returned a temporary ${response.status} response. Please try again.`,
-              );
-            }
-            return response;
-          },
-          headers: () => {
-            const headers = new Headers();
-            headers.set("x-trpc-source", "nextjs-react");
-            return headers;
-          },
+        splitLink({
+          condition: (op) => op.type === "mutation",
+          true: httpLink({
+            transformer: SuperJSON,
+            url: getBaseUrl() + "/api/trpc",
+            fetch: fetchTrpc,
+            headers: trpcHeaders,
+          }),
+          false: httpBatchLink({
+            transformer: SuperJSON,
+            url: getBaseUrl() + "/api/trpc",
+            fetch: fetchTrpc,
+            headers: trpcHeaders,
+          }),
         }),
       ],
     }),

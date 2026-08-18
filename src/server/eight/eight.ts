@@ -3,6 +3,8 @@ import { z } from "zod";
 import { DeviceDataSchema, DeviceListSchema, type Token } from "./types";
 import { CLIENT_API_URL, APP_API_URL, DEFAULT_API_HEADERS } from "./constants";
 
+const PROVIDER_TIMEOUT_MS = 6_000;
+
 export async function fetchWithAuth<
   T extends z.ZodType<unknown, z.ZodTypeDef, unknown>,
 >(
@@ -13,7 +15,7 @@ export async function fetchWithAuth<
 ): Promise<z.infer<T>> {
   const response = await fetch(url, {
     ...options,
-    signal: options.signal ?? AbortSignal.timeout(8_000),
+    signal: options.signal ?? AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     headers: {
       ...DEFAULT_API_HEADERS,
       ...options.headers,
@@ -23,7 +25,16 @@ export async function fetchWithAuth<
   if (!response.ok) {
     throw new Error(`API request failed: ${response.status}`);
   }
-  const data: unknown = await response.json();
+  const text = await response.text();
+  if (!text.trim()) {
+    return schema.parse({});
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return schema.parse({});
+  }
   return schema.parse(data);
 }
 
@@ -49,10 +60,13 @@ export async function setHeatingLevel(
   duration = 0,
 ): Promise<void> {
   const url = `${APP_API_URL}v1/users/${userId}/temperature`;
-  const data = {
-    timeBased: { level, durationSeconds: duration },
+  const data: Record<string, unknown> = {
+    currentState: { type: "smart" },
     currentLevel: level,
   };
+  if (duration > 0) {
+    data.timeBased = { level, durationSeconds: duration };
+  }
 
   await fetchWithAuth(url, token, z.object({}), {
     method: "PUT",

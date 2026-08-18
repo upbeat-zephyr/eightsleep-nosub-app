@@ -25,6 +25,7 @@ import {
 } from "~/server/agentOperations";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const time = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
 const timezone = z

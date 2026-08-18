@@ -121,6 +121,7 @@ pnpm exec tsc --noEmit
 SKIP_ENV_VALIDATION=1 pnpm lint
 SKIP_ENV_VALIDATION=1 pnpm build
 pnpm test:mcp
+pnpm test:eight
 ```
 
 Production deployment is triggered by pushing `main`; verify the Vercel commit
@@ -131,5 +132,11 @@ status and a `200` response from the production URL.
 - Eight Sleep endpoints are unofficial and can change without notice.
 - Runtime table creation can add cold-start latency and should eventually move
   to deployment migrations.
+- The Postgres client uses a single connection per serverless isolate. Table
+  ensure and provider HTTP must run outside an open transaction, or a nap
+  start can wait until Vercel returns 504.
+- tRPC and cron routes set `maxDuration` to 60 seconds. Hobby plans still cap
+  functions at 10 seconds, so nap start uses one combined provider PUT and
+  does not retry timeouts.
 - There are no automated integration tests against a real Pod or disposable
   PostgreSQL instance in this repository.

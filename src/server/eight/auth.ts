@@ -31,7 +31,7 @@ async function makeAuthRequest(
       method: "POST",
       headers: DEFAULT_AUTH_HEADERS,
       body: JSON.stringify(data),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(6_000),
     });
 
     if (!response.ok) {
